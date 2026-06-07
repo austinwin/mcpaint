@@ -1,17 +1,17 @@
-// McPaint — Colors Panel
+// McPaint — Colors Panel (owns its color wheel drawing)
 import { FloatingPanel } from './FloatingPanel';
 import { ColorMgr } from '../services/ColorManager';
 
 export class ColorsPanel extends FloatingPanel {
   cm: ColorMgr;
 
-  constructor(cm: ColorMgr, redrawWheel: () => void) {
-    super('colors-panel', 'Colors', 9, 999, 210); // y set later
+  constructor(cm: ColorMgr) {
+    super('colors-panel', 'Colors', 9, 999, 210);
     this.cm = cm;
-    this.build(redrawWheel);
+    this.build();
   }
 
-  private build(redrawWheel: () => void): void {
+  private build(): void {
     const cm = this.cm;
     this.body.innerHTML = `
       <div id="cwheel-wrap"><canvas id="cwheel" width="120" height="120"></canvas><div id="cwheel-ptr"></div></div>
@@ -31,10 +31,9 @@ export class ColorsPanel extends FloatingPanel {
         <div class="color-row"><lbl>#</lbl><input type="text" id="chex" value="#000000" class="color-hex"></div>
       </div>`;
 
-    // Wire events
+    // Wire events (wheel drawing happens in appendTo, after DOM insertion)
     const w = this.body.querySelector('#cwheel') as HTMLCanvasElement;
     const pt = this.body.querySelector('#cwheel-ptr') as HTMLElement;
-    redrawWheel();
 
     const onWheel = (e: MouseEvent) => {
       const r = w.getBoundingClientRect();
@@ -54,6 +53,13 @@ export class ColorsPanel extends FloatingPanel {
       w.addEventListener('pointerup', () => w.removeEventListener('pointermove', mv), { once: true });
     });
 
+    // Right-click = secondary color
+    w.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      cm.priActive = false;
+      onWheel(e as any);
+    });
+
     this.body.querySelector('#cb-pri')!.addEventListener('click', () => { cm.priActive = true; this.refreshUI(); });
     this.body.querySelector('#cb-sec')!.addEventListener('click', () => { cm.priActive = false; this.refreshUI(); });
     this.body.querySelector('#btn-swap')!.addEventListener('click', () => { cm.swap(); this.refreshUI(); });
@@ -63,6 +69,7 @@ export class ColorsPanel extends FloatingPanel {
       const btn = this.body.querySelector('#btn-more') as HTMLElement;
       ex.style.display = ex.style.display === 'none' ? 'block' : 'none';
       btn.textContent = ex.style.display === 'none' ? 'More >>' : '<< Less';
+      setTimeout(() => this.drawWheel(), 50); // redraw if needed after expand
     });
 
     const bind = (id: string, ch: 'r'|'g'|'b'|'a') => {
@@ -79,7 +86,6 @@ export class ColorsPanel extends FloatingPanel {
       if (/^#[0-9a-fA-F]{6}$/.test(v)) { const c = cm.fromHex(v); c.a = cm.active.a; cm.active = c; this.refreshUI(); }
     });
 
-    // Palette
     const pg = this.body.querySelector('#pal-grid')!;
     for (const sw of ColorMgr.palette()) {
       const d = document.createElement('div'); d.className = 'pal-swatch';
@@ -90,6 +96,29 @@ export class ColorsPanel extends FloatingPanel {
 
     cm.onChange(() => this.refreshUI());
     this.refreshUI();
+  }
+
+  /** Draw the HSV color wheel — called after DOM insertion */
+  drawWheel(): void {
+    const w = this.body.querySelector('#cwheel') as HTMLCanvasElement | null;
+    if (!w || w.offsetWidth === 0) return;
+    const ctx = w.getContext('2d')!;
+    const R = w.width / 2;
+    const id = ctx.createImageData(w.width, w.height);
+    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) {
+      const dx = x - R, dy = y - R, d = Math.sqrt(dx * dx + dy * dy), i = (y * w.width + x) * 4;
+      if (d <= R) {
+        const c = ColorMgr.hsva2rgba({ h: Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360), s: Math.round(Math.min(100, (d / R) * 100)), v: 100, a: 255 });
+        id.data[i] = c.r; id.data[i + 1] = c.g; id.data[i + 2] = c.b; id.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(id, 0, 0);
+  }
+
+  /** Override: draw wheel after DOM insertion */
+  appendTo(parent: HTMLElement): void {
+    super.appendTo(parent);
+    setTimeout(() => this.drawWheel(), 20);
   }
 
   refreshUI(): void {

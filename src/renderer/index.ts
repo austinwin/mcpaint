@@ -53,7 +53,7 @@ class McPaintApp {
 
     // Create floating panels
     this.toolsPanel = new ToolsPanel((t: ToolType) => this.selectTool(t), this.tooltip);
-    this.colorsPanel = new ColorsPanel(this.eng.color, () => this.drawColorWheel());
+    this.colorsPanel = new ColorsPanel(this.eng.color);
     this.layersPanel = new LayersPanel(this.eng);
     this.historyPanel = new HistoryPanel(this.eng);
 
@@ -109,32 +109,59 @@ class McPaintApp {
   private setTheme(t: 'light' | 'dark'): void {
     this.theme = t;
     document.documentElement.setAttribute('data-theme', t);
+    this.colorsPanel?.drawWheel();
   }
 
   // ==================== PANEL POSITIONING ====================
-  private positionPanels(): void {
-    // Tools: left edge, below toolbar area
-    this.toolsPanel.el.style.left = '8px';
-    this.toolsPanel.el.style.top = '4px';
-    this.toolsPanel.el.style.width = '48px';
-
-    // Colors: left edge, near bottom
-    this.colorsPanel.el.style.left = '8px';
-    this.colorsPanel.el.style.bottom = '30px';
-    this.colorsPanel.el.style.top = 'auto';
-    this.colorsPanel.el.style.width = '210px';
-
-    // History: right edge, top
-    this.historyPanel.el.style.right = '12px';
-    this.historyPanel.el.style.top = '4px';
-    this.historyPanel.el.style.left = 'auto';
-    this.historyPanel.el.style.width = '180px';
-
-    // Layers: right edge, below history
-    this.layersPanel.el.style.right = '12px';
-    this.layersPanel.el.style.top = '170px';
-    this.layersPanel.el.style.left = 'auto';
-    this.layersPanel.el.style.width = '200px';
+  private positionPanels(reset = false): void {
+    const defaults: Record<string, any> = {
+      tools:  { left: '8px',  top: '4px',    width: '56px' },
+      colors: { left: '8px',  bottom: '30px', width: '210px' },
+      history:{ right:'12px', top: '4px',    width: '180px' },
+      layers: { right:'12px', top: '170px',   width: '200px' },
+    };
+    const panels: Record<string, FloatingPanel> = {
+      tools: this.toolsPanel, colors: this.colorsPanel,
+      history: this.historyPanel, layers: this.layersPanel,
+    };
+    for (const [key, panel] of Object.entries(panels)) {
+      const def = defaults[key];
+      if (reset) localStorage.removeItem(`mcpaint_panel_${key}`);
+      let pos = reset ? def : (this._loadPanelPos(key) || def);
+      panel.el.style.left = pos.left || 'auto';
+      panel.el.style.right = pos.right || 'auto';
+      panel.el.style.top = pos.top || 'auto';
+      panel.el.style.bottom = pos.bottom || 'auto';
+      panel.el.style.width = pos.width;
+      // Save on titlebar drag end
+      const tb = panel.el.querySelector('.fp-titlebar');
+      if (tb) tb.addEventListener('pointerup', () => {
+        const p: any = { width: panel.el.style.width };
+        if (panel.el.style.left !== 'auto') p.left = panel.el.style.left;
+        if (panel.el.style.right !== 'auto') p.right = panel.el.style.right;
+        if (panel.el.style.top !== 'auto') p.top = panel.el.style.top;
+        if (panel.el.style.bottom !== 'auto') p.bottom = panel.el.style.bottom;
+        localStorage.setItem(`mcpaint_panel_${key}`, JSON.stringify(p));
+        localStorage.setItem(`mcpaint_panel_${key}_visible`, String(panel.visible));
+      });
+    }
+    this._clampPanels();
+  }
+  private _loadPanelPos(key: string): any {
+    try { const d = localStorage.getItem(`mcpaint_panel_${key}`); return d ? JSON.parse(d) : null; }
+    catch { return null; }
+  }
+  private _clampPanels(): void {
+    const vw = this.ws.clientWidth, vh = this.ws.clientHeight;
+    const wr = this.ws.getBoundingClientRect();
+    [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => {
+      const r = p.el.getBoundingClientRect();
+      const relL = r.left - wr.left, relT = r.top - wr.top;
+      if (relL + r.width > vw) p.el.style.left = `${Math.max(0, vw - r.width)}px`;
+      if (relT + r.height > vh) p.el.style.top = `${Math.max(0, vh - r.height)}px`;
+      if (relL < 0) p.el.style.left = '0px';
+      if (relT < 0) p.el.style.top = '0px';
+    });
   }
 
   // ==================== TOOL SELECTION ====================
@@ -231,16 +258,21 @@ class McPaintApp {
   // ==================== OPTIONS BAR ====================
   private setupOptionsBar(): void {
     const bindSlider = (sliderId: string, numId: string, setter: (v: number) => void) => {
-      const s = document.getElementById(sliderId) as HTMLInputElement;
-      const n = document.getElementById(numId) as HTMLInputElement;
+      const s = document.getElementById(sliderId) as HTMLInputElement | null;
+      const n = document.getElementById(numId) as HTMLInputElement | null;
       if (!s || !n) return;
       s.addEventListener('input', () => { const v = parseInt(s.value); n.value = String(v); setter(v); });
       n.addEventListener('change', () => { const v = parseInt(n.value); if (!isNaN(v)) { s.value = String(v); setter(v); } });
     };
     bindSlider('opt-size', 'opt-size-n', v => { this.eng.state.brushSize = v; });
     bindSlider('opt-hard', 'opt-hard-n', v => { this.eng.state.hardness = v; });
-    document.getElementById('opt-fill')!.addEventListener('change', e => {
+    bindSlider('opt-tol', 'opt-tol-n', v => { this.eng.state.tolerance = v; });
+    bindSlider('opt-rad', 'opt-rad-n', v => { this.eng.state.cornerRadius = v; });
+    document.getElementById('opt-fill')?.addEventListener('change', e => {
       this.eng.state.fillMode = (e.target as HTMLSelectElement).value as any;
+    });
+    document.getElementById('opt-grad')?.addEventListener('change', e => {
+      this.eng.state.gradientType = (e.target as HTMLSelectElement).value as any;
     });
     this.eng.onChange(() => this.updateOptionsBar());
     this.updateOptionsBar();
@@ -250,16 +282,24 @@ class McPaintApp {
     const meta = TOOL_META.find(x => x.type === this.eng.state.tool);
     document.getElementById('opt-tool-name')!.textContent = meta?.name || '—';
 
-    const sizeEl = document.getElementById('opt-size')?.parentElement?.parentElement as HTMLElement;
-    const hardEl = document.getElementById('opt-hard')?.parentElement?.parentElement as HTMLElement;
-    const fillEl = document.getElementById('opt-fill')?.parentElement as HTMLElement;
+    // Map option names to group element IDs — safe, never touches parentElement
+    const groups: Record<string, string> = {
+      size: 'opt-group-size',
+      hardness: 'opt-group-hardness',
+      tolerance: 'opt-group-tolerance',
+      fillMode: 'opt-group-fill',
+      gradientType: 'opt-group-gradient',
+      radius: 'opt-group-radius',
+    };
 
     const opts = meta?.options || [];
-    const show = (el: HTMLElement | null, v: boolean) => { if (el) el.style.display = v ? '' : 'none'; };
-    show(sizeEl, opts.includes('size'));
-    show(hardEl, opts.includes('hardness'));
-    show(fillEl, opts.includes('fillMode'));
+    for (const [key, groupId] of Object.entries(groups)) {
+      const el = document.getElementById(groupId);
+      if (el) el.style.display = opts.includes(key) ? '' : 'none';
+      else console.warn(`updateOptionsBar: missing group #${groupId}`);
+    }
 
+    // Sync slider values
     if (opts.includes('size')) {
       (document.getElementById('opt-size') as HTMLInputElement).value = String(this.eng.state.brushSize);
       (document.getElementById('opt-size-n') as HTMLInputElement).value = String(this.eng.state.brushSize);
@@ -268,8 +308,18 @@ class McPaintApp {
       (document.getElementById('opt-hard') as HTMLInputElement).value = String(this.eng.state.hardness);
       (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(this.eng.state.hardness);
     }
-    const fillSel = document.getElementById('opt-fill') as HTMLSelectElement;
+    if (opts.includes('tolerance')) {
+      (document.getElementById('opt-tol') as HTMLInputElement).value = String(this.eng.state.tolerance);
+      (document.getElementById('opt-tol-n') as HTMLInputElement).value = String(this.eng.state.tolerance);
+    }
+    if (opts.includes('radius')) {
+      (document.getElementById('opt-rad') as HTMLInputElement).value = String(this.eng.state.cornerRadius);
+      (document.getElementById('opt-rad-n') as HTMLInputElement).value = String(this.eng.state.cornerRadius);
+    }
+    const fillSel = document.getElementById('opt-fill') as HTMLSelectElement | null;
     if (fillSel) fillSel.value = this.eng.state.fillMode;
+    const gradSel = document.getElementById('opt-grad') as HTMLSelectElement | null;
+    if (gradSel) gradSel.value = this.eng.state.gradientType;
   }
 
   // ==================== TOOLBAR ====================
@@ -366,7 +416,7 @@ class McPaintApp {
     new ResizeObserver(() => {
       this.oc.width = this.cw.clientWidth;
       this.oc.height = this.cw.clientHeight;
-      this.positionPanels();
+      this._clampPanels();
       this.render();
     }).observe(this.ws);
   }
@@ -392,22 +442,6 @@ class McPaintApp {
     mcp.onMenu((action: string, ...args: any[]) => this.dispatchAction(action, ...args));
   }
 
-  // ==================== COLOR WHEEL ====================
-  private drawColorWheel(): void {
-    const w = document.querySelector('#cwheel') as HTMLCanvasElement;
-    if (!w) return;
-    const ctx = w.getContext('2d')!;
-    const R = w.width / 2;
-    const id = ctx.createImageData(w.width, w.height);
-    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) {
-      const dx = x - R, dy = y - R, d = Math.sqrt(dx * dx + dy * dy), i = (y * w.width + x) * 4;
-      if (d <= R) {
-        const c = ColorMgr.hsva2rgba({ h: Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360), s: Math.round(Math.min(100, (d / R) * 100)), v: 100, a: 255 });
-        id.data[i] = c.r; id.data[i + 1] = c.g; id.data[i + 2] = c.b; id.data[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(id, 0, 0);
-  }
 
   // ==================== DIALOGS ====================
   private dlgNew(): void {
@@ -506,7 +540,7 @@ class McPaintApp {
       case 'togglePanel:c': this.togglePanel('colors', !this.colorsPanel.visible); break;
       case 'togglePanel:l': this.togglePanel('layers', !this.layersPanel.visible); break;
       case 'togglePanel:h': this.togglePanel('history', !this.historyPanel.visible); break;
-      case 'resetLayout': this.positionPanels();
+      case 'resetLayout': this.positionPanels(true);
         [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => p.visible = true); break;
       case 'about': alert('McPaint v1.0 — Paint.NET-inspired image editor for macOS\nBuilt with Electron + TypeScript'); break;
       case 'shortcuts': alert('S=Select M=Move L=Lasso W=Wand B=Brush E=Eraser P=Pencil\nF=Bucket K=Picker C=Clone R=Recolor T=Text O=Line\nG=Gradient H=Pan Z=Zoom X=Swap Colors\n⌘Z=Undo ⌘Y=Redo ⌘A=All ⌘D=Deselect'); break;

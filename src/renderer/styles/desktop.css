@@ -175,7 +175,8 @@ body {
   height: var(--tabstrip-h);
   background: var(--chrome-bg-2);
   border-bottom: 1px solid var(--border);
-  overflow-x: auto;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 #tab-strip .tab-item {
   display: flex; align-items: center;

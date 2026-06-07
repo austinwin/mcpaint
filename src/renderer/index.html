@@ -77,14 +77,12 @@
       <div id="options-bar">
         <span id="opt-tool-name" style="font-weight:600;">Brush</span>
         <span class="opt-sep"></span>
-        <label>Size</label><input type="range" id="opt-size" min="1" max="500" value="8"><input type="number" id="opt-size-n" value="8" style="width:32px">
-        <span class="opt-sep"></span>
-        <label>Hard</label><input type="range" id="opt-hard" min="0" max="100" value="75"><input type="number" id="opt-hard-n" value="75" style="width:32px">
-        <span class="opt-sep"></span>
-        <label>Fill</label>
-        <select id="opt-fill">
-          <option value="Outline">Outline</option><option value="Filled">Filled</option><option value="FilledOutline">Both</option>
-        </select>
+        <span class="opt-group" id="opt-group-size"><label>Size</label><input type="range" id="opt-size" min="1" max="500" value="8"><input type="number" id="opt-size-n" value="8" style="width:32px"></span>
+        <span class="opt-group" id="opt-group-hardness"><label>Hard</label><input type="range" id="opt-hard" min="0" max="100" value="75"><input type="number" id="opt-hard-n" value="75" style="width:32px"></span>
+        <span class="opt-group" id="opt-group-tolerance"><label>Tol</label><input type="range" id="opt-tol" min="0" max="255" value="32"><input type="number" id="opt-tol-n" value="32" style="width:32px"></span>
+        <span class="opt-group" id="opt-group-fill"><label>Fill</label><select id="opt-fill"><option value="Outline">Outline</option><option value="Filled">Filled</option><option value="FilledOutline">Both</option></select></span>
+        <span class="opt-group" id="opt-group-gradient"><label>Type</label><select id="opt-grad"><option value="linear">Linear</option><option value="radial">Radial</option></select></span>
+        <span class="opt-group" id="opt-group-radius"><label>Rad</label><input type="range" id="opt-rad" min="1" max="100" value="10"><input type="number" id="opt-rad-n" value="10" style="width:32px"></span>
       </div>
 
       <!-- Document Tab Strip -->
