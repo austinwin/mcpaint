@@ -1,0 +1,511 @@
+// McPaint — Main App Controller
+import { DrawEngine } from './services/DrawingEngine';
+import { ToolType, TOOLS } from './models/ToolType';
+import { ColorMgr } from './services/ColorManager';
+import { FloatingPanel } from './components/FloatingPanel';
+import { ToolsPanel } from './components/ToolsPanel';
+import { ColorsPanel } from './components/ColorsPanel';
+import { LayersPanel } from './components/LayersPanel';
+import { HistoryPanel } from './components/HistoryPanel';
+import { MenuBar } from './components/MenuBar';
+import { Icons } from './components/editorIcons';
+import './styles/desktop.css';
+import './styles/panels.css';
+import './styles/workspace.css';
+
+// ============================================================
+class McPaintApp {
+  eng = new DrawEngine();
+
+  // DOM
+  private mc!: HTMLCanvasElement;
+  private oc!: HTMLCanvasElement;
+  private cw!: HTMLElement;
+  private ws!: HTMLElement;
+
+  // Panels
+  private toolsPanel!: ToolsPanel;
+  private colorsPanel!: ColorsPanel;
+  private layersPanel!: LayersPanel;
+  private historyPanel!: HistoryPanel;
+
+  theme: 'light' | 'dark' = 'light';
+
+  constructor() {
+    this.mc = document.getElementById('main-canvas') as HTMLCanvasElement;
+    this.oc = document.getElementById('overlay-canvas') as HTMLCanvasElement;
+    this.cw = document.getElementById('canvas-wrap')!;
+    this.ws = document.getElementById('workspace')!;
+    this.init();
+  }
+
+  private init(): void {
+    this.setTheme(this.theme);
+    this.eng.createDoc('Untitled', 800, 600);
+
+    // Create floating panels
+    this.toolsPanel = new ToolsPanel((t: ToolType) => this.selectTool(t));
+    this.colorsPanel = new ColorsPanel(this.eng.color, () => this.drawColorWheel());
+    this.layersPanel = new LayersPanel(this.eng);
+    this.historyPanel = new HistoryPanel(this.eng);
+
+    // Append panels to workspace
+    this.toolsPanel.appendTo(this.ws);
+    this.colorsPanel.appendTo(this.ws);
+    this.layersPanel.appendTo(this.ws);
+    this.historyPanel.appendTo(this.ws);
+
+    // Position panels (Paint.NET-style floating layout)
+    this.positionPanels();
+
+    this.setupCanvas();
+    this.setupToolbar();
+    this.setupOptionsBar();
+    this.setupTabs();
+    this.setupZoom();
+    this.setupMenuBridge();
+    this.setupKeyboard();
+    this.setupResize();
+
+    this.eng.onChange(() => this.render());
+    this.render();
+    this.centerCanvas();
+    this.updateStatusBar();
+  }
+
+  // ==================== PANEL TOGGLE ====================
+  private togglePanel(name: string, show: boolean): void {
+    const map: Record<string, any> = {
+      tools: this.toolsPanel, colors: this.colorsPanel,
+      layers: this.layersPanel, history: this.historyPanel,
+    };
+    const panel = map[name];
+    if (panel) panel.visible = show;
+  }
+
+  // ==================== TOOLBAR ICONS ====================
+  private replaceToolbarIcons(): void {
+    const map: Record<string, keyof typeof Icons> = {
+      'btn-new': 'newDoc', 'btn-open': 'open', 'btn-save': 'save',
+      'btn-cut': 'cut', 'btn-copy': 'copy', 'btn-paste': 'paste',
+      'btn-undo': 'undo', 'btn-redo': 'redo', 'btn-crop': 'crop',
+      'btn-deselect': 'deselect', 'btn-print': 'print',
+    };
+    for (const [id, key] of Object.entries(map)) {
+      const btn = document.getElementById(id);
+      if (btn) btn.innerHTML = Icons[key];
+    }
+  }
+
+  // ==================== THEME ====================
+  private setTheme(t: 'light' | 'dark'): void {
+    this.theme = t;
+    document.documentElement.setAttribute('data-theme', t);
+  }
+
+  // ==================== PANEL POSITIONING ====================
+  private positionPanels(): void {
+    // Tools: left edge, below toolbar area
+    this.toolsPanel.el.style.left = '8px';
+    this.toolsPanel.el.style.top = '4px';
+    this.toolsPanel.el.style.width = '48px';
+
+    // Colors: left edge, near bottom
+    this.colorsPanel.el.style.left = '8px';
+    this.colorsPanel.el.style.bottom = '30px';
+    this.colorsPanel.el.style.top = 'auto';
+    this.colorsPanel.el.style.width = '210px';
+
+    // History: right edge, top
+    this.historyPanel.el.style.right = '12px';
+    this.historyPanel.el.style.top = '4px';
+    this.historyPanel.el.style.left = 'auto';
+    this.historyPanel.el.style.width = '180px';
+
+    // Layers: right edge, below history
+    this.layersPanel.el.style.right = '12px';
+    this.layersPanel.el.style.top = '170px';
+    this.layersPanel.el.style.left = 'auto';
+    this.layersPanel.el.style.width = '200px';
+  }
+
+  // ==================== TOOL SELECTION ====================
+  private selectTool(t: ToolType): void {
+    this.eng.setTool(t);
+    this.toolsPanel.setActive(t);
+    this.updateOptionsBar();
+  }
+
+  // ==================== CANVAS ====================
+  private setupCanvas(): void {
+    const o = this.oc;
+    o.addEventListener('pointerdown', e => { this.eng.down(e.offsetX, e.offsetY, e.button); this.render(); });
+    o.addEventListener('pointermove', e => { this.updateCursor(e.offsetX, e.offsetY); this.eng.move(e.offsetX, e.offsetY); this.render(); });
+    o.addEventListener('pointerup', e => { this.eng.up(e.offsetX, e.offsetY); this.render(); });
+    o.addEventListener('pointerleave', () => { if (this.eng.drawing) { this.eng.drawing = false; this.render(); } });
+    o.addEventListener('contextmenu', e => e.preventDefault());
+    this.cw.addEventListener('wheel', e => {
+      e.preventDefault();
+      if (e.metaKey || e.ctrlKey) {
+        const r = o.getBoundingClientRect();
+        e.deltaY < 0 ? this.eng.zoomIn(e.clientX - r.left, e.clientY - r.top) : this.eng.zoomOut(e.clientX - r.left, e.clientY - r.top);
+        this.render();
+      }
+    }, { passive: false });
+  }
+
+  private updateCursor(ox: number, oy: number): void {
+    const d = this.eng.doc; if (!d) return;
+    const cx = Math.floor((ox - this.eng.panX) / this.eng.zoom);
+    const cy = Math.floor((oy - this.eng.panY) / this.eng.zoom);
+    const el = (id: string, v: string) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    el('sts-pos', `${cx}, ${cy} px`);
+    el('sts-sel', this.eng.sel ? `${Math.abs(Math.round(this.eng.sel.w))} × ${Math.abs(Math.round(this.eng.sel.h))} px` : '0 × 0 px');
+    const d2 = this.eng.doc;
+    if (d2) el('sts-size', `${d2.width} × ${d2.height} px`);
+  }
+
+  // ==================== RENDER ====================
+  private render(): void {
+    const d = this.eng.doc; if (!d) return;
+    const z = this.eng.zoom, px = this.eng.panX, py = this.eng.panY;
+    const cw = d.width * z, ch = d.height * z;
+
+    this.mc.width = cw; this.mc.height = ch;
+    this.mc.style.width = `${cw}px`; this.mc.style.height = `${ch}px`;
+    this.mc.style.left = `${px}px`; this.mc.style.top = `${py}px`;
+
+    this.oc.width = this.cw.clientWidth; this.oc.height = this.cw.clientHeight;
+
+    const ctx = this.mc.getContext('2d')!;
+    const comp = d.composite();
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(comp, 0, 0, cw, ch);
+
+    // Overlay (selection, lasso, etc.)
+    const octx = this.oc.getContext('2d')!;
+    octx.clearRect(0, 0, this.oc.width, this.oc.height);
+    if (this.eng.sel) {
+      const { x, y, w, h } = this.eng.sel;
+      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1; octx.setLineDash([4, 4]);
+      octx.strokeRect(x * z + px, y * z + py, w * z, h * z);
+      octx.fillStyle = 'rgba(51,153,255,.12)'; octx.fillRect(x * z + px, y * z + py, w * z, h * z);
+      octx.setLineDash([]); octx.restore();
+    }
+    if (this.eng.lassoPts.length > 0) {
+      const pts = this.eng.lassoPts;
+      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1; octx.setLineDash([4, 4]); octx.beginPath();
+      octx.moveTo(pts[0].x * z + px, pts[0].y * z + py);
+      for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x * z + px, pts[i].y * z + py);
+      octx.stroke(); octx.setLineDash([]); octx.restore();
+    }
+
+    this.updateStatusBar();
+  }
+
+  private centerCanvas(): void {
+    const d = this.eng.doc; if (!d) return;
+    this.eng.panX = (this.cw.clientWidth - d.width * this.eng.zoom) / 2;
+    this.eng.panY = (this.cw.clientHeight - d.height * this.eng.zoom) / 2;
+    this.render();
+  }
+
+  private updateStatusBar(): void {
+    const d = this.eng.doc;
+    document.getElementById('sts-zoom')!.textContent = `${Math.round(this.eng.zoom * 100)}%`;
+    if (d) {
+      document.getElementById('sts-size')!.textContent = `${d.width} × ${d.height} px`;
+      document.getElementById('sts-layer')!.textContent = d.active?.name || '—';
+    }
+  }
+
+  // ==================== OPTIONS BAR ====================
+  private setupOptionsBar(): void {
+    document.getElementById('opt-size')!.addEventListener('input', e => {
+      const v = parseInt((e.target as HTMLInputElement).value);
+      this.eng.state.brushSize = v;
+      (document.getElementById('opt-size-n') as HTMLInputElement).value = String(v);
+    });
+    document.getElementById('opt-size-n')!.addEventListener('change', e => {
+      const v = parseInt((e.target as HTMLInputElement).value);
+      if (!isNaN(v)) { this.eng.state.brushSize = v; (document.getElementById('opt-size') as HTMLInputElement).value = String(v); }
+    });
+    document.getElementById('opt-hard')!.addEventListener('input', e => {
+      const v = parseInt((e.target as HTMLInputElement).value);
+      this.eng.state.hardness = v;
+      (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(v);
+    });
+    document.getElementById('opt-hard-n')!.addEventListener('change', e => {
+      const v = parseInt((e.target as HTMLInputElement).value);
+      if (!isNaN(v)) { this.eng.state.hardness = v; (document.getElementById('opt-hard') as HTMLInputElement).value = String(v); }
+    });
+    document.getElementById('opt-fill')!.addEventListener('change', e => {
+      this.eng.state.fillMode = (e.target as HTMLSelectElement).value as any;
+    });
+    this.eng.onChange(() => this.updateOptionsBar());
+    this.updateOptionsBar();
+  }
+
+  private updateOptionsBar(): void {
+    const t = TOOLS.find(x => x.type === this.eng.state.tool);
+    document.getElementById('opt-tool-name')!.textContent = t?.name || 'Brush';
+    document.getElementById('opt-size')!.setAttribute('value', String(this.eng.state.brushSize));
+    (document.getElementById('opt-size-n') as HTMLInputElement).value = String(this.eng.state.brushSize);
+    document.getElementById('opt-hard')!.setAttribute('value', String(this.eng.state.hardness));
+    (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(this.eng.state.hardness);
+    (document.getElementById('opt-fill') as HTMLSelectElement).value = this.eng.state.fillMode;
+  }
+
+  // ==================== TOOLBAR ====================
+  private setupToolbar(): void {
+    const b = (id: string, fn: () => void) => document.getElementById(id)!.addEventListener('click', fn);
+    b('btn-new', () => this.dlgNew());
+    b('btn-open', () => this.fileOpen());
+    b('btn-save', () => this.fileSave());
+    b('btn-undo', async () => { await this.eng.undo(); this.render(); });
+    b('btn-redo', async () => { await this.eng.redo(); this.render(); });
+    b('btn-cut', () => this.clipCut());
+    b('btn-copy', () => this.clipCopy());
+    b('btn-paste', () => this.clipPaste());
+    b('btn-crop', () => { this.eng.cropToSel(); this.render(); });
+    b('btn-deselect', () => { this.eng.deselect(); this.render(); });
+    b('btn-zoom-in', () => { this.eng.zoomIn(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); });
+    b('btn-zoom-out', () => { this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); });
+    b('btn-theme', () => this.setTheme(this.theme === 'light' ? 'dark' : 'light'));
+
+    // Create visual menu bar
+    new MenuBar(document.getElementById('menu-row')!);
+
+    // Replace toolbar button icons with SVG icons
+    this.replaceToolbarIcons();
+  }
+
+  // ==================== TABS ====================
+  private setupTabs(): void {
+    this.refreshTabs();
+    this.eng.onChange(() => this.refreshTabs());
+    document.getElementById('tab-strip')!.addEventListener('click', e => {
+      const t = e.target as HTMLElement;
+      if (t.classList.contains('tab-x')) {
+        const i = parseInt(t.closest('.tab-item')?.getAttribute('data-idx') || '');
+        if (!isNaN(i)) { this.eng.closeDoc(i); this.refreshTabs(); this.render(); }
+      } else if (t.closest('.tab-item')) {
+        const i = parseInt(t.closest('.tab-item')!.getAttribute('data-idx') || '');
+        if (!isNaN(i)) { this.eng.switchDoc(i); this.refreshTabs(); this.render(); }
+      }
+    });
+  }
+
+  private refreshTabs(): void {
+    const c = document.getElementById('tab-strip')!; c.innerHTML = '';
+    this.eng.docs.forEach((d, i) => {
+      const tab = document.createElement('div'); tab.className = 'tab-item';
+      tab.classList.toggle('active', i === this.eng.docIdx); tab.setAttribute('data-idx', String(i));
+      const img = document.createElement('img'); img.className = 'tab-img'; img.src = d.layers[0]?.thumb(24) || ''; tab.appendChild(img);
+      const nm = document.createElement('span'); nm.className = 'tab-name'; nm.textContent = d.name + (d.modified ? ' *' : ''); tab.appendChild(nm);
+      const x = document.createElement('button'); x.className = 'tab-x'; x.textContent = '×'; tab.appendChild(x);
+      c.appendChild(tab);
+    });
+  }
+
+  // ==================== ZOOM SELECT ====================
+  private setupZoom(): void {
+    document.getElementById('zoom-select')!.addEventListener('change', e => {
+      const v = parseFloat((e.target as HTMLSelectElement).value);
+      if (!isNaN(v) && v > 0) {
+        const ow = this.eng.zoom;
+        this.eng.zoom = v;
+        this.eng.panX = this.cw.clientWidth / 2 - (this.cw.clientWidth / 2 - this.eng.panX) * (v / ow);
+        this.eng.panY = this.cw.clientHeight / 2 - (this.cw.clientHeight / 2 - this.eng.panY) * (v / ow);
+        this.render();
+      }
+    });
+  }
+
+  // ==================== RESIZE ====================
+  private setupResize(): void {
+    new ResizeObserver(() => {
+      this.oc.width = this.cw.clientWidth;
+      this.oc.height = this.cw.clientHeight;
+      this.positionPanels();
+      this.render();
+    }).observe(this.ws);
+  }
+
+  // ==================== KEYBOARD ====================
+  private setupKeyboard(): void {
+    document.addEventListener('keydown', e => {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
+      for (const t of TOOLS) {
+        if (t.shortcut && e.key.toUpperCase() === t.shortcut.toUpperCase() && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault(); this.selectTool(t.type); return;
+        }
+      }
+      if (e.key.toUpperCase() === 'X' && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault(); this.eng.color.swap(); this.colorsPanel.refreshUI();
+      }
+    });
+  }
+
+  // ==================== MENU BRIDGE ====================
+  private setupMenuBridge(): void {
+    if (typeof (window as any).mcp === 'undefined') return;
+    const mcp = (window as any).mcp;
+    mcp.onMenu((action: string, ...args: any[]) => {
+      switch (action) {
+        case 'new': this.dlgNew(); break;
+        case 'save': this.fileSave(); break;
+        case 'saveAs': this.fileSaveAs(args[0]); break;
+        case 'openFile': this.fileOpenPath(args[0]); break;
+        case 'close': this.eng.closeDoc(this.eng.docIdx); this.refreshTabs(); this.render(); break;
+        case 'undo': this.eng.undo(); this.render(); break;
+        case 'redo': this.eng.redo(); this.render(); break;
+        case 'cut': this.clipCut(); break;
+        case 'copy': this.clipCopy(); break;
+        case 'paste': this.clipPaste(); break;
+        case 'selectAll': this.eng.selectAll(); this.render(); break;
+        case 'deselect': this.eng.deselect(); this.render(); break;
+        case 'fillSel': this.eng.fillSel(); this.render(); break;
+        case 'clearSel': this.eng.clearSel(); this.render(); break;
+        case 'zoomIn': this.eng.zoomIn(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
+        case 'zoomOut': this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
+        case 'zoomFit': this.centerCanvas(); break;
+        case 'actualSize': this.eng.zoom = 1; this.eng.panX = 0; this.eng.panY = 0; this.render(); break;
+        case 'theme': this.setTheme(args[0] === 'dark' ? 'dark' : 'light'); break;
+        case 'resize': this.dlgResize(); break;
+        case 'canvasSize': this.dlgCanvasSize(); break;
+        case 'flipH': this.eng.flipH(); this.render(); break;
+        case 'flipV': this.eng.flipV(); this.render(); break;
+        case 'rotCW': this.eng.rotateCW(); this.render(); break;
+        case 'rotCCW': this.eng.rotateCCW(); this.render(); break;
+        case 'crop': this.eng.cropToSel(); this.render(); break;
+        case 'flatten': this.eng.flatten(); this.render(); break;
+        case 'addLayer': this.eng.addLayer(); this.render(); break;
+        case 'delLayer': this.eng.delLayer(); this.render(); break;
+        case 'dupLayer': this.eng.dupLayer(); this.render(); break;
+        case 'mergeDown': this.eng.mergeD(); this.render(); break;
+        case 'moveUp': this.eng.moveUp(); this.render(); break;
+        case 'moveDown': this.eng.moveDown(); this.render(); break;
+        case 'bw': this.eng.bw(); this.render(); break;
+        case 'sepia': this.eng.sepia(); this.render(); break;
+        case 'invert': this.eng.invert(); this.render(); break;
+        case 'blur': this.eng.blur(3); this.render(); break;
+        case 'sharpen': this.eng.sharpen(); this.render(); break;
+        case 'edge': this.eng.edgeDetect(); this.render(); break;
+        case 'emboss': this.eng.emboss(); this.render(); break;
+        case 'pixelate': this.eng.pixelate(4); this.render(); break;
+        case 'togglePanel': this.togglePanel(args[0], args[1]); break;
+        case 'resetLayout': this.positionPanels();
+          [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => p.visible = true);
+          break;
+      }
+    });
+  }
+
+  // ==================== COLOR WHEEL ====================
+  private drawColorWheel(): void {
+    const w = document.querySelector('#cwheel') as HTMLCanvasElement;
+    if (!w) return;
+    const ctx = w.getContext('2d')!;
+    const R = w.width / 2;
+    const id = ctx.createImageData(w.width, w.height);
+    for (let y = 0; y < w.height; y++) for (let x = 0; x < w.width; x++) {
+      const dx = x - R, dy = y - R, d = Math.sqrt(dx * dx + dy * dy), i = (y * w.width + x) * 4;
+      if (d <= R) {
+        const c = ColorMgr.hsva2rgba({ h: Math.round(((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360), s: Math.round(Math.min(100, (d / R) * 100)), v: 100, a: 255 });
+        id.data[i] = c.r; id.data[i + 1] = c.g; id.data[i + 2] = c.b; id.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(id, 0, 0);
+  }
+
+  // ==================== DIALOGS ====================
+  private dlgNew(): void {
+    this._dlg('New Image', `
+      <div class="dlg-row"><label>Width:</label><input type="number" id="dlgw" value="800" min="1" max="9999"><label>px</label></div>
+      <div class="dlg-row"><label>Height:</label><input type="number" id="dlgh" value="600" min="1" max="9999"><label>px</label></div>
+      <div class="dlg-row"><label>Name:</label><input type="text" id="dlgn" value="Untitled"></div>
+    `, () => {
+      const w = parseInt((document.getElementById('dlgw') as HTMLInputElement).value);
+      const h = parseInt((document.getElementById('dlgh') as HTMLInputElement).value);
+      this.eng.createDoc((document.getElementById('dlgn') as HTMLInputElement).value || 'Untitled', w, h);
+      this.refreshTabs(); this.centerCanvas(); this.render();
+    });
+  }
+  private dlgResize(): void {
+    const d = this.eng.doc; if (!d) return;
+    this._dlg('Resize Image', `
+      <div class="dlg-row"><label>Width:</label><input type="number" id="dlgw" value="${d.width}"><label>px</label></div>
+      <div class="dlg-row"><label>Height:</label><input type="number" id="dlgh" value="${d.height}"><label>px</label></div>
+    `, () => {
+      const w = parseInt((document.getElementById('dlgw') as HTMLInputElement).value);
+      const h = parseInt((document.getElementById('dlgh') as HTMLInputElement).value);
+      if (w > 0 && h > 0) { this.eng.snap('Resize'); d.resizeCanvas(w, h); this.render(); }
+    });
+  }
+  private dlgCanvasSize(): void {
+    const d = this.eng.doc; if (!d) return;
+    this._dlg('Canvas Size', `
+      <div class="dlg-row"><label>Width:</label><input type="number" id="dlgw" value="${d.width}"><label>px</label></div>
+      <div class="dlg-row"><label>Height:</label><input type="number" id="dlgh" value="${d.height}"><label>px</label></div>
+    `, () => {
+      const w = parseInt((document.getElementById('dlgw') as HTMLInputElement).value);
+      const h = parseInt((document.getElementById('dlgh') as HTMLInputElement).value);
+      if (w > 0 && h > 0) { this.eng.snap('Canvas Size'); d.resizeCanvas(w, h); this.render(); }
+    });
+  }
+  private _dlg(title: string, body: string, ok: () => void): void {
+    document.querySelector('.dlg-ov')?.remove();
+    const ov = document.createElement('div'); ov.className = 'dlg-ov';
+    ov.innerHTML = `<div class="dlg-box"><div class="dlg-title">${title}</div><div class="dlg-body">${body}</div><div class="dlg-btns"><button class="dlg-btn" id="dc">Cancel</button><button class="dlg-btn prim" id="do">OK</button></div></div>`;
+    ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+    ov.querySelector('#dc')!.addEventListener('click', () => ov.remove());
+    ov.querySelector('#do')!.addEventListener('click', () => { ok(); ov.remove(); });
+    ov.addEventListener('keydown', e => { if (e.key === 'Enter') { ok(); ov.remove(); } else if (e.key === 'Escape') ov.remove(); });
+    document.body.appendChild(ov);
+    const f = ov.querySelector('input'); if (f) setTimeout(() => f.focus(), 50);
+  }
+
+  // ==================== FILE OPS ====================
+  private async fileOpen(): Promise<void> {
+    if (typeof (window as any).mcp !== 'undefined') {
+      const p = await (window as any).mcp.open();
+      if (p) this.fileOpenPath(p);
+    }
+  }
+  private async fileOpenPath(fp: string): Promise<void> {
+    try { const r = await fetch(`file://${fp}`); this.eng.loadFromFile(fp, await r.arrayBuffer()); this.refreshTabs(); this.centerCanvas(); }
+    catch (e) { console.error('Open failed:', e); }
+  }
+  private async fileSave(): Promise<void> {
+    const d = this.eng.doc; if (!d) return;
+    if (d.filePath) this.fileSaveAs(d.filePath); else this.fileSaveAs();
+  }
+  private async fileSaveAs(fp?: string): Promise<void> {
+    if (!fp && typeof (window as any).mcp !== 'undefined') {
+      fp = (await (window as any).mcp.save(this.eng.doc?.name || 'untitled.png')) || undefined;
+    }
+    if (fp) { const d = this.eng.doc; if (d) { d.filePath = fp; d.modified = false; this.refreshTabs(); } }
+  }
+
+  // ==================== CLIPBOARD ====================
+  private async clipCopy(): Promise<void> {
+    try { const du = this.eng.compositeDataURL(); const r = await fetch(du); const b = await r.blob(); await navigator.clipboard.write([new ClipboardItem({ [b.type]: b })]); }
+    catch (e) { console.error('Copy failed:', e); }
+  }
+  private async clipCut(): Promise<void> { await this.clipCopy(); this.eng.clearSel(); this.render(); }
+  private async clipPaste(): Promise<void> {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) for (const type of item.types) {
+        if (type.startsWith('image/')) {
+          const blob = await item.getType(type); const url = URL.createObjectURL(blob);
+          this.eng.loadImage(url, 'Pasted'); URL.revokeObjectURL(url); this.refreshTabs(); return;
+        }
+      }
+    } catch (e) { console.error('Paste failed:', e); }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => { new McPaintApp(); });

@@ -1,0 +1,46 @@
+{
+  "name": "mcpaint",
+  "version": "1.0.0",
+  "description": "McPaint - A Paint.NET-inspired image editor for macOS built with Electron",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "webpack --config webpack.config.js --mode production",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"webpack --config webpack.config.js --mode development --watch\" \"wait-on dist/main/main.js dist/renderer/bundle.js && electron .\"",
+    "pack": "electron-builder --mac",
+    "dist": "electron-builder --mac --universal"
+  },
+  "build": {
+    "appId": "com.mcpaint.app",
+    "productName": "McPaint",
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": ["dmg", "zip"],
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSRequiresAquaSystemAppearance": false
+      }
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.2",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "html-webpack-plugin": "^5.6.0",
+    "style-loader": "^3.3.3",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.2",
+    "wait-on": "^7.2.0",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
