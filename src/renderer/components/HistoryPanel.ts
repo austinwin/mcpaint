@@ -1,6 +1,7 @@
 // McPaint — History Panel
 import { FloatingPanel } from './FloatingPanel';
 import { DrawEngine } from '../services/DrawingEngine';
+import { Icons } from './editorIcons';
 
 export class HistoryPanel extends FloatingPanel {
   eng: DrawEngine;
@@ -15,9 +16,9 @@ export class HistoryPanel extends FloatingPanel {
     this.body.innerHTML = `
       <div id="history-list"></div>
       <div class="hist-btns">
-        <button id="btn-hu" title="Undo">↩</button>
-        <button id="btn-hr" title="Redo">↪</button>
-        <button id="btn-hc" title="Clear">✕</button>
+        <button id="btn-hu" title="Undo">${Icons.undo}</button>
+        <button id="btn-hr" title="Redo">${Icons.redo}</button>
+        <button id="btn-hc" title="Clear History">${Icons.delete}</button>
       </div>`;
     this.wire();
   }

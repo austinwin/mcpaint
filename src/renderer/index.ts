@@ -1,14 +1,16 @@
 // McPaint — Main App Controller
 import { DrawEngine } from './services/DrawingEngine';
-import { ToolType, TOOLS } from './models/ToolType';
+import { ToolType } from './models/ToolType';
+import { TOOL_META } from './models/ToolMetadata';
 import { ColorMgr } from './services/ColorManager';
+import { TooltipService } from './services/TooltipService';
 import { FloatingPanel } from './components/FloatingPanel';
 import { ToolsPanel } from './components/ToolsPanel';
 import { ColorsPanel } from './components/ColorsPanel';
 import { LayersPanel } from './components/LayersPanel';
 import { HistoryPanel } from './components/HistoryPanel';
 import { MenuBar } from './components/MenuBar';
-import { Icons } from './components/editorIcons';
+import { Icons, toolIcon } from './components/editorIcons';
 import './styles/desktop.css';
 import './styles/panels.css';
 import './styles/workspace.css';
@@ -16,6 +18,7 @@ import './styles/workspace.css';
 // ============================================================
 class McPaintApp {
   eng = new DrawEngine();
+  tooltip = new TooltipService();
 
   // DOM
   private mc!: HTMLCanvasElement;
@@ -43,8 +46,13 @@ class McPaintApp {
     this.setTheme(this.theme);
     this.eng.createDoc('Untitled', 800, 600);
 
+    // Wire tooltip status callback to status bar
+    this.tooltip.setStatusCallback((text: string) => {
+      document.getElementById('sts-msg')!.textContent = text;
+    });
+
     // Create floating panels
-    this.toolsPanel = new ToolsPanel((t: ToolType) => this.selectTool(t));
+    this.toolsPanel = new ToolsPanel((t: ToolType) => this.selectTool(t), this.tooltip);
     this.colorsPanel = new ColorsPanel(this.eng.color, () => this.drawColorWheel());
     this.layersPanel = new LayersPanel(this.eng);
     this.historyPanel = new HistoryPanel(this.eng);
@@ -222,24 +230,15 @@ class McPaintApp {
 
   // ==================== OPTIONS BAR ====================
   private setupOptionsBar(): void {
-    document.getElementById('opt-size')!.addEventListener('input', e => {
-      const v = parseInt((e.target as HTMLInputElement).value);
-      this.eng.state.brushSize = v;
-      (document.getElementById('opt-size-n') as HTMLInputElement).value = String(v);
-    });
-    document.getElementById('opt-size-n')!.addEventListener('change', e => {
-      const v = parseInt((e.target as HTMLInputElement).value);
-      if (!isNaN(v)) { this.eng.state.brushSize = v; (document.getElementById('opt-size') as HTMLInputElement).value = String(v); }
-    });
-    document.getElementById('opt-hard')!.addEventListener('input', e => {
-      const v = parseInt((e.target as HTMLInputElement).value);
-      this.eng.state.hardness = v;
-      (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(v);
-    });
-    document.getElementById('opt-hard-n')!.addEventListener('change', e => {
-      const v = parseInt((e.target as HTMLInputElement).value);
-      if (!isNaN(v)) { this.eng.state.hardness = v; (document.getElementById('opt-hard') as HTMLInputElement).value = String(v); }
-    });
+    const bindSlider = (sliderId: string, numId: string, setter: (v: number) => void) => {
+      const s = document.getElementById(sliderId) as HTMLInputElement;
+      const n = document.getElementById(numId) as HTMLInputElement;
+      if (!s || !n) return;
+      s.addEventListener('input', () => { const v = parseInt(s.value); n.value = String(v); setter(v); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); if (!isNaN(v)) { s.value = String(v); setter(v); } });
+    };
+    bindSlider('opt-size', 'opt-size-n', v => { this.eng.state.brushSize = v; });
+    bindSlider('opt-hard', 'opt-hard-n', v => { this.eng.state.hardness = v; });
     document.getElementById('opt-fill')!.addEventListener('change', e => {
       this.eng.state.fillMode = (e.target as HTMLSelectElement).value as any;
     });
@@ -248,13 +247,29 @@ class McPaintApp {
   }
 
   private updateOptionsBar(): void {
-    const t = TOOLS.find(x => x.type === this.eng.state.tool);
-    document.getElementById('opt-tool-name')!.textContent = t?.name || 'Brush';
-    document.getElementById('opt-size')!.setAttribute('value', String(this.eng.state.brushSize));
-    (document.getElementById('opt-size-n') as HTMLInputElement).value = String(this.eng.state.brushSize);
-    document.getElementById('opt-hard')!.setAttribute('value', String(this.eng.state.hardness));
-    (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(this.eng.state.hardness);
-    (document.getElementById('opt-fill') as HTMLSelectElement).value = this.eng.state.fillMode;
+    const meta = TOOL_META.find(x => x.type === this.eng.state.tool);
+    document.getElementById('opt-tool-name')!.textContent = meta?.name || '—';
+
+    const sizeEl = document.getElementById('opt-size')?.parentElement?.parentElement as HTMLElement;
+    const hardEl = document.getElementById('opt-hard')?.parentElement?.parentElement as HTMLElement;
+    const fillEl = document.getElementById('opt-fill')?.parentElement as HTMLElement;
+
+    const opts = meta?.options || [];
+    const show = (el: HTMLElement | null, v: boolean) => { if (el) el.style.display = v ? '' : 'none'; };
+    show(sizeEl, opts.includes('size'));
+    show(hardEl, opts.includes('hardness'));
+    show(fillEl, opts.includes('fillMode'));
+
+    if (opts.includes('size')) {
+      (document.getElementById('opt-size') as HTMLInputElement).value = String(this.eng.state.brushSize);
+      (document.getElementById('opt-size-n') as HTMLInputElement).value = String(this.eng.state.brushSize);
+    }
+    if (opts.includes('hardness')) {
+      (document.getElementById('opt-hard') as HTMLInputElement).value = String(this.eng.state.hardness);
+      (document.getElementById('opt-hard-n') as HTMLInputElement).value = String(this.eng.state.hardness);
+    }
+    const fillSel = document.getElementById('opt-fill') as HTMLSelectElement;
+    if (fillSel) fillSel.value = this.eng.state.fillMode;
   }
 
   // ==================== TOOLBAR ====================
@@ -273,6 +288,29 @@ class McPaintApp {
     b('btn-zoom-in', () => { this.eng.zoomIn(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); });
     b('btn-zoom-out', () => { this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); });
     b('btn-theme', () => this.setTheme(this.theme === 'light' ? 'dark' : 'light'));
+
+    // Tooltips for toolbar buttons
+    const tt = this.tooltip;
+    const tbind = (id: string, label: string, status: string) => {
+      const el = document.getElementById(id); if (el) tt.bind(el, label, status);
+    };
+    tbind('btn-new', 'New (⌘N)\nCreate a new image', 'New: Create a new blank image document.');
+    tbind('btn-open', 'Open (⌘O)\nOpen an image file', 'Open: Open an existing image file.');
+    tbind('btn-save', 'Save (⌘S)\nSave the current document', 'Save: Save the current document to disk.');
+    tbind('btn-undo', 'Undo (⌘Z)\nUndo the last action', 'Undo: Reverse the most recent change.');
+    tbind('btn-redo', 'Redo (⌘Y)\nRedo the previously undone action', 'Redo: Re-apply the undone change.');
+    tbind('btn-cut', 'Cut (⌘X)\nCopy selection to clipboard and delete', 'Cut: Copy selection to clipboard and remove it.');
+    tbind('btn-copy', 'Copy (⌘C)\nCopy selection to clipboard', 'Copy: Copy the selection or merged image to clipboard.');
+    tbind('btn-paste', 'Paste (⌘V)\nPaste from clipboard', 'Paste: Paste an image from the clipboard as a new document.');
+    tbind('btn-crop', 'Crop to Selection (⌘⇧X)\nCrop canvas to selection', 'Crop to Selection: Resize canvas to the selected area.');
+    tbind('btn-deselect', 'Deselect (⌘D)\nClear the current selection', 'Deselect: Remove the active selection.');
+    tbind('btn-zoom-in', 'Zoom In (⌘+)\nIncrease zoom level', 'Zoom In: Magnify the canvas view.');
+    tbind('btn-zoom-out', 'Zoom Out (⌘−)\nDecrease zoom level', 'Zoom Out: Reduce the canvas view magnification.');
+    tbind('btn-theme', 'Toggle Theme\nSwitch between light and dark mode', 'Toggle Theme: Switch between light and dark interface themes.');
+
+    // Print button — disabled since not implemented
+    const printBtn = document.getElementById('btn-print');
+    if (printBtn) { printBtn.style.opacity = '0.4'; printBtn.title = 'Print — Coming soon'; }
 
     // Create visual menu bar — wired to central dispatcher
     new MenuBar(document.getElementById('menu-row')!, (a, ...args) => this.dispatchAction(a, ...args));
@@ -337,7 +375,7 @@ class McPaintApp {
   private setupKeyboard(): void {
     document.addEventListener('keydown', e => {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
-      for (const t of TOOLS) {
+      for (const t of TOOL_META) {
         if (t.shortcut && e.key.toUpperCase() === t.shortcut.toUpperCase() && !e.metaKey && !e.ctrlKey) {
           e.preventDefault(); this.selectTool(t.type); return;
         }

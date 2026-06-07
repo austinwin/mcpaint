@@ -32,7 +32,9 @@ export const Icons = {
 
   lasso: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 6c1-3 4-4 6-3s5 1 5 4c0 3-2 6-4 7-2 1-5 1-6-1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>`,
 
-  magicWand: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 2l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M12 10l-6 6-2-2 6-6" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/></svg>`,
+  ellipseSelect: `<svg width="16" height="16" viewBox="0 0 16 16"><ellipse cx="8" cy="8" rx="6" ry="5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="3 2"/></svg>`,
+
+  magicWand: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 2l1 3 3 1-3 1-1 3-1-3-3-1 3-1z" fill="none" stroke="currentColor" stroke-width="1.1"/><line x1="7" y1="7" x2="14" y2="14" stroke="currentColor" stroke-width="1.2" opacity="0.5"/></svg>`,
 
   bucket: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 14l3-7h6l3 7H2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 7l5-5 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="10" r="1" fill="currentColor"/></svg>`,
 
@@ -65,6 +67,10 @@ export const Icons = {
   pan: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M5 5h2v7H5zm4 0h2v7H9z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3 8c0-1 1-2 2-2h6c1 0 2 1 2 2v0c0 1-1 2-2 2H5c-1 0-2-1-2-2z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
 
   zoom: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="10" y1="10" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+
+  zoomIcon: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" stroke-width="1.3"/><line x1="10" y1="10" x2="14.5" y2="14.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+
+  curve: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 12c3-6 9-6 12 0" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="2" cy="12" r="1" fill="currentColor"/><circle cx="14" cy="12" r="1" fill="currentColor"/></svg>`,
 
   add: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.3"/><line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" stroke-width="1.3"/></svg>`,
 
@@ -107,11 +113,12 @@ export function icon(key: keyof typeof Icons, className?: string): HTMLElement {
 /** Map tool type to icon key */
 export function toolIcon(toolType: string): keyof typeof Icons {
   const m: Record<string, keyof typeof Icons> = {
-    rectselect: 'rectSelect', move: 'move', lasso: 'lasso', ellipsesel: 'rectSelect',
+    rectselect: 'rectSelect', move: 'move', lasso: 'lasso', ellipsesel: 'ellipseSelect',
     magicwand: 'magicWand', bucket: 'bucket', brush: 'brush', eraser: 'eraser',
     pencil: 'pencil', picker: 'picker', clone: 'clone', recolor: 'recolor',
-    text: 'text', line: 'line', curve: 'line', rect: 'rect', roundrect: 'roundRect',
-    ellipse: 'ellipse', freeform: 'freeform', gradient: 'gradient', pan: 'pan', zoom: 'zoom',
+    text: 'text', line: 'line', curve: 'curve', rect: 'rect', roundrect: 'roundRect',
+    ellipse: 'ellipse', freeform: 'freeform', gradient: 'gradient', pan: 'pan', zoom: 'zoomIcon',
+    zoomIcon: 'zoomIcon',
   };
   return m[toolType] || 'brush';
 }

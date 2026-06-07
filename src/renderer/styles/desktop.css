@@ -152,7 +152,7 @@ body {
   gap: 8px;
   font-size: 10px;
 }
-#options-bar label { color: var(--text-dim); font-size: 9px; }
+#options-bar label { color: var(--text-dim); font-size: 9px; min-width: auto; }
 #options-bar input[type="range"] { width: 60px; height: 10px; }
 #options-bar input[type="number"] {
   width: 36px; font-size: 9px; padding: 0 2px;
@@ -166,6 +166,7 @@ body {
 }
 [data-theme="dark"] #options-bar select { background: #3a3f4b; color: var(--text); }
 .opt-sep { width: 1px; height: 14px; background: var(--border); }
+.opt-group { display: flex; align-items: center; gap: 3px; }
 
 /* ---- Document Tab Strip ---- */
 #tab-strip {
@@ -235,6 +236,11 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-dark); }
+
+/* ---- Tooltip (dark theme override) ---- */
+[data-theme="dark"] .mc-tooltip {
+  background: #3a3520; color: #e8e3d0; border-color: #8a8040;
+}
 
 /* ---- Dialog ---- */
 .dlg-ov {

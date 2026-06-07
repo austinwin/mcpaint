@@ -1,6 +1,7 @@
 // McPaint — Layers Panel
 import { FloatingPanel } from './FloatingPanel';
 import { DrawEngine } from '../services/DrawingEngine';
+import { Icons } from './editorIcons';
 
 export class LayersPanel extends FloatingPanel {
   eng: DrawEngine;
@@ -17,12 +18,12 @@ export class LayersPanel extends FloatingPanel {
       <div class="layer-ctrl"><lbl>Mode:</lbl><select id="blend-sel"><option value="normal">Normal</option><option value="multiply">Multiply</option><option value="additive">Additive</option><option value="colorBurn">Color Burn</option><option value="colorDodge">Color Dodge</option><option value="reflect">Reflect</option><option value="glow">Glow</option><option value="overlay">Overlay</option><option value="difference">Difference</option><option value="negation">Negation</option><option value="lighten">Lighten</option><option value="darken">Darken</option><option value="screen">Screen</option><option value="xor">Xor</option></select></div>
       <div class="layer-ctrl"><lbl>Opacity:</lbl><input type="range" id="opac-s" min="0" max="255" value="255"><span class="val" id="opac-v">255</span></div>
       <div class="layer-btns">
-        <button id="btn-add-l" title="Add Layer">＋</button>
-        <button id="btn-del-l" title="Delete">🗑</button>
-        <button id="btn-dup-l" title="Duplicate">⧉</button>
-        <button id="btn-merge-l" title="Merge Down">⇓</button>
-        <button id="btn-up-l" title="Move Up">↑</button>
-        <button id="btn-dn-l" title="Move Down">↓</button>
+        <button id="btn-add-l" title="Add New Layer">${Icons.add}</button>
+        <button id="btn-del-l" title="Delete Layer">${Icons.delete}</button>
+        <button id="btn-dup-l" title="Duplicate Layer">${Icons.duplicate}</button>
+        <button id="btn-merge-l" title="Merge Layer Down">${Icons.mergeDown}</button>
+        <button id="btn-up-l" title="Move Layer Up">${Icons.moveUp}</button>
+        <button id="btn-dn-l" title="Move Layer Down">${Icons.moveDown}</button>
       </div>`;
     this.wire();
   }
