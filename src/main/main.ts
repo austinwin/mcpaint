@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain, nativeTheme, MenuItemConstructorOptions } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 
 let win: BrowserWindow | null = null;
 
@@ -162,6 +163,17 @@ function create(): void {
 ipcMain.handle('dlg:open', async () => { const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] }] }); return r.canceled ? null : r.filePaths[0]; });
 ipcMain.handle('dlg:save', async (_, n: string) => { const r = await dialog.showSaveDialog(win!, { defaultPath: n, filters: [{ name: 'PNG', extensions: ['png'] }, { name: 'JPEG', extensions: ['jpg'] }, { name: 'WebP', extensions: ['webp'] }] }); return r.canceled ? null : r.filePath; });
 ipcMain.handle('theme:dark', () => nativeTheme.shouldUseDarkColors);
+
+// Real file I/O
+ipcMain.handle('file:read', async (_, filePath: string) => {
+  try { return { data: fs.readFileSync(filePath).buffer, error: null }; }
+  catch (e: any) { return { data: null, error: e.message }; }
+});
+
+ipcMain.handle('file:write', async (_, filePath: string, data: ArrayBuffer) => {
+  try { fs.writeFileSync(filePath, Buffer.from(data)); return { error: null }; }
+  catch (e: any) { return { error: e.message }; }
+});
 
 app.whenReady().then(() => { menu(); create(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) create(); }); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

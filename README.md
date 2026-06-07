@@ -45,20 +45,48 @@ These rules exist so the project stays focused, consistent, and manageable. The 
 
 ## Features
 
-- 22 drawing tools (brush, pencil, eraser, shapes, fill, gradient, clone, text, and more)
-- Selection tools with marching ants (rectangle, lasso, magic wand, ellipse)
-- Full layer system with 14 blend modes, opacity, visibility, and reordering
-- Unlimited undo/redo history
-- Color wheel, palette, RGBA sliders, hex input, primary/secondary swatches
-- Image effects (blur, sharpen, edge detect, emboss, pixelate, invert, sepia, B&W)
-- Image transforms (flip, rotate, resize, canvas size, crop)
-- Floating draggable panels (Tools, Colors, Layers, History)
-- Dark and light themes
-- Keyboard shortcuts for every tool
-- Tabbed multi-document interface
-- Native macOS titlebar
-- Clipboard support (copy/cut/paste)
-- File open/save for PNG, JPEG, WebP
+### Working
+- 22 drawing tools — Brush, Pencil, Eraser, Paint Bucket, Gradient, Color Picker, Clone Stamp, Recolor, Text, Line, Rectangle, Rounded Rectangle, Ellipse, Freeform Shape
+- Selection tools — Rectangle Select, Lasso Select, Ellipse Select, Magic Wand (bounding-box), Select All, Deselect, Fill Selection, Clear Selection, Crop to Selection
+- Layer system — Add, Delete, Duplicate, Merge Down, Move Up/Down, Flatten, 14 blend modes, opacity, visibility toggle, layer renaming, thumbnails
+- Unlimited undo/redo history with named entries, jump-to-entry, clear
+- Color system — Color wheel, 32-color palette, Primary/Secondary swatches with swap, RGBA sliders, Hex input, expandable More/Less
+- Image effects — Gaussian Blur, Sharpen, Edge Detect, Emboss, Pixelate, Invert Colors, Black & White, Sepia
+- Image transforms — Flip Horizontal/Vertical, Rotate 90° CW/CCW, Resize, Canvas Size
+- File I/O — Real PNG/JPEG/WebP save via Electron IPC, Open PNG/JPEG/WebP/BMP/GIF
+- Clipboard — Copy, Cut, Paste (system clipboard)
+- Zoom/Pan — Zoom In/Out, Zoom dropdown (1%–3200%), Zoom to Fit, Actual Size, scroll-wheel zoom
+- Tabbed multi-document — Thumbnail tabs, close, switch
+- Dark and Light themes — Toggle via toolbar button or menu
+- Floating draggable panels — Tools, Colors, Layers, History; closable and reopenable via Window menu
+- Window dragging — macOS native titlebar with `-webkit-app-region` drag regions
+- Status bar — Cursor position, selection size, canvas size, zoom, active layer name
+- Keyboard shortcuts — One-key tool switching (B=Brush, E=Eraser, etc.), X=swap colors
+- Visual menu bar — 10 dropdown menus wired to real actions
+- Native Electron menu — File, Edit, View, Image, Layers, Adjustments, Effects, Window, Help
+- Checkerboard transparency background
+
+### Partial / Needs Improvement
+- Lasso selection uses bounding box (not polygon mask)
+- Magic Wand uses bounding box (not pixel-accurate mask)
+- Move tool does not float selected pixels
+- Curve tool not implemented (disabled)
+- Freeform shape tool is basic
+- No pressure sensitivity for drawing tablets
+- No rulers or grid overlay
+- No pixel grid at high zoom
+
+### Not Yet Implemented
+- Adjustment dialogs with previews (Brightness/Contrast, Hue/Saturation, Levels, Curves, Posterize)
+- Motion Blur, Noise, Glow, Vignette effects
+- Custom `.mcp` project format (layers not preserved across sessions)
+- Drag-and-drop file import
+- Recent files list
+- Unsaved changes warning on close
+- Layer locking
+- Guides and snap-to-grid
+- Full pixel-accurate selection masks (marching ants)
+- Printing
 
 ---
 

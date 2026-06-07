@@ -12,6 +12,8 @@ const actions = [
 contextBridge.exposeInMainWorld('mcp', {
   open: () => ipcRenderer.invoke('dlg:open'),
   save: (n: string) => ipcRenderer.invoke('dlg:save', n),
+  readFile: (p: string) => ipcRenderer.invoke('file:read', p),
+  writeFile: (p: string, data: ArrayBuffer) => ipcRenderer.invoke('file:write', p, data),
   onMenu: (cb: (a: string, ...args: any[]) => void) => {
     const h = (_: any, a: string, ...args: any[]) => cb(a, ...args);
     ipcRenderer.on('m:openFile', (_e, p) => h(null, 'openFile', p));

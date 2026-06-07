@@ -1,86 +1,82 @@
-// McPaint — Visual Menu Bar with Dropdowns
-// The native Electron menu handles the real functionality.
-// This visual menu row provides desktop look and mirrors the native menu.
+// McPaint — Visual Menu Bar with Wired Dropdowns
+// Every menu item dispatches to the central app action handler.
 
 interface MenuItemDef {
-  label?: string;
-  action?: () => void;
-  enabled?: boolean;
-  shortcut?: string;
-  separator?: boolean;
+  label?: string; action?: string; enabled?: boolean;
+  shortcut?: string; separator?: boolean;
 }
 
-const menus: Record<string, MenuItemDef[]> = {
+const menuDef: Record<string, MenuItemDef[]> = {
   File: [
-    { label: 'New', shortcut: '⌘N' },
-    { label: 'Open...', shortcut: '⌘O' },
+    { label: 'New', shortcut: '⌘N', action: 'new' },
+    { label: 'Open...', shortcut: '⌘O', action: 'openDialog' },
     { separator: true },
-    { label: 'Save', shortcut: '⌘S' },
-    { label: 'Save As...', shortcut: '⌘⇧S' },
+    { label: 'Save', shortcut: '⌘S', action: 'save' },
+    { label: 'Save As...', shortcut: '⌘⇧S', action: 'saveAs' },
     { separator: true },
-    { label: 'Close', shortcut: '⌘W' },
-    { label: 'Exit' },
+    { label: 'Close', shortcut: '⌘W', action: 'close' },
   ],
   Edit: [
-    { label: 'Undo', shortcut: '⌘Z' },
-    { label: 'Redo', shortcut: '⌘Y' },
+    { label: 'Undo', shortcut: '⌘Z', action: 'undo' },
+    { label: 'Redo', shortcut: '⌘Y', action: 'redo' },
     { separator: true },
-    { label: 'Cut', shortcut: '⌘X' },
-    { label: 'Copy', shortcut: '⌘C' },
-    { label: 'Paste', shortcut: '⌘V' },
+    { label: 'Cut', shortcut: '⌘X', action: 'cut' },
+    { label: 'Copy', shortcut: '⌘C', action: 'copy' },
+    { label: 'Paste', shortcut: '⌘V', action: 'paste' },
     { separator: true },
-    { label: 'Select All', shortcut: '⌘A' },
-    { label: 'Deselect', shortcut: '⌘D' },
+    { label: 'Select All', shortcut: '⌘A', action: 'selectAll' },
+    { label: 'Deselect', shortcut: '⌘D', action: 'deselect' },
     { separator: true },
-    { label: 'Fill Selection', shortcut: '⌫' },
-    { label: 'Clear Selection', shortcut: '⌦' },
+    { label: 'Fill Selection', shortcut: '⌫', action: 'fillSel' },
+    { label: 'Clear Selection', shortcut: '⌦', action: 'clearSel' },
+    { label: 'Invert Selection', action: 'invertSel' },
   ],
   View: [
-    { label: 'Zoom In', shortcut: '⌘+' },
-    { label: 'Zoom Out', shortcut: '⌘−' },
-    { label: 'Zoom to Window', shortcut: '⌘B' },
-    { label: 'Actual Size', shortcut: '⌘0' },
+    { label: 'Zoom In', shortcut: '⌘+', action: 'zoomIn' },
+    { label: 'Zoom Out', shortcut: '⌘−', action: 'zoomOut' },
+    { label: 'Zoom to Window', shortcut: '⌘B', action: 'zoomFit' },
+    { label: 'Actual Size', shortcut: '⌘0', action: 'actualSize' },
     { separator: true },
-    { label: 'Toggle Full Screen', shortcut: 'F11' },
+    { label: 'Toggle Dark Theme', action: 'theme' },
+    { label: 'Full Screen', shortcut: 'F11', action: 'fullscreen' },
   ],
   Image: [
-    { label: 'Resize...', shortcut: '⌘R' },
-    { label: 'Canvas Size...', shortcut: '⌘⇧R' },
+    { label: 'Resize...', shortcut: '⌘R', action: 'resize' },
+    { label: 'Canvas Size...', shortcut: '⌘⇧R', action: 'canvasSize' },
     { separator: true },
-    { label: 'Flip Horizontal' },
-    { label: 'Flip Vertical' },
-    { label: 'Rotate 90° CW' },
-    { label: 'Rotate 90° CCW' },
+    { label: 'Flip Horizontal', action: 'flipH' },
+    { label: 'Flip Vertical', action: 'flipV' },
+    { label: 'Rotate 90° CW', action: 'rotCW' },
+    { label: 'Rotate 90° CCW', action: 'rotCCW' },
     { separator: true },
-    { label: 'Crop to Selection', shortcut: '⌘⇧X' },
-    { label: 'Flatten', shortcut: '⌘⇧F' },
+    { label: 'Crop to Selection', shortcut: '⌘⇧X', action: 'crop' },
+    { label: 'Flatten', shortcut: '⌘⇧F', action: 'flatten' },
   ],
   Layers: [
-    { label: 'Add New Layer', shortcut: '⌘⇧N' },
-    { label: 'Delete Layer' },
-    { label: 'Duplicate Layer' },
-    { label: 'Merge Layer Down', shortcut: '⌘M' },
+    { label: 'Add New Layer', shortcut: '⌘⇧N', action: 'addLayer' },
+    { label: 'Delete Layer', action: 'delLayer' },
+    { label: 'Duplicate Layer', action: 'dupLayer' },
+    { label: 'Merge Layer Down', shortcut: '⌘M', action: 'mergeDown' },
     { separator: true },
-    { label: 'Move Layer Up' },
-    { label: 'Move Layer Down' },
+    { label: 'Move Layer Up', action: 'moveUp' },
+    { label: 'Move Layer Down', action: 'moveDown' },
   ],
   Adjustments: [
-    { label: 'Invert Colors', shortcut: '⌘⇧I' },
-    { label: 'Black and White' },
-    { label: 'Sepia' },
+    { label: 'Invert Colors', shortcut: '⌘⇧I', action: 'invert' },
+    { label: 'Black and White', action: 'bw' },
+    { label: 'Sepia', action: 'sepia' },
     { separator: true },
     { label: 'Brightness/Contrast', enabled: false },
     { label: 'Hue/Saturation', enabled: false },
     { label: 'Levels', enabled: false },
     { label: 'Curves', enabled: false },
-    { label: 'Posterize', enabled: false },
   ],
   Effects: [
-    { label: 'Gaussian Blur' },
-    { label: 'Sharpen' },
-    { label: 'Edge Detect' },
-    { label: 'Emboss' },
-    { label: 'Pixelate' },
+    { label: 'Gaussian Blur', action: 'blur' },
+    { label: 'Sharpen', action: 'sharpen' },
+    { label: 'Edge Detect', action: 'edge' },
+    { label: 'Emboss', action: 'emboss' },
+    { label: 'Pixelate', action: 'pixelate' },
     { separator: true },
     { label: 'Motion Blur', enabled: false },
     { label: 'Noise', enabled: false },
@@ -88,113 +84,69 @@ const menus: Record<string, MenuItemDef[]> = {
     { label: 'Vignette', enabled: false },
   ],
   Window: [
-    { label: 'Tools', shortcut: '✓' },
-    { label: 'Colors', shortcut: '✓' },
-    { label: 'Layers', shortcut: '✓' },
-    { label: 'History', shortcut: '✓' },
+    { label: 'Tools', action: 'togglePanel:t' },
+    { label: 'Colors', action: 'togglePanel:c' },
+    { label: 'Layers', action: 'togglePanel:l' },
+    { label: 'History', action: 'togglePanel:h' },
     { separator: true },
-    { label: 'Reset Window Layout' },
+    { label: 'Reset Window Layout', action: 'resetLayout' },
   ],
   Help: [
-    { label: 'About McPaint' },
-    { label: 'Keyboard Shortcuts' },
-    { label: 'McPaint on GitHub', enabled: false },
+    { label: 'About McPaint', action: 'about' },
+    { label: 'Keyboard Shortcuts', action: 'shortcuts' },
   ],
 };
 
 export class MenuBar {
-  private dropdownEl: HTMLElement | null = null;
+  private dd: HTMLElement | null = null;
+  private dispatch: (action: string, ...args: any[]) => void;
 
-  constructor(private container: HTMLElement) {
+  constructor(private container: HTMLElement, dispatch: (action: string, ...args: any[]) => void) {
+    this.dispatch = dispatch;
     this.build();
   }
 
   private build(): void {
     this.container.innerHTML = '';
-    for (const menuName of Object.keys(menus)) {
-      const item = document.createElement('span');
-      item.className = 'menu-item';
-      item.textContent = menuName;
-      item.addEventListener('click', (e) => {
+    for (const name of Object.keys(menuDef)) {
+      const el = document.createElement('span');
+      el.className = 'menu-item';
+      el.textContent = name;
+      el.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this.dropdownEl) {
-          this.dropdownEl.remove();
-          this.dropdownEl = null;
-        }
-        this.showDropdown(menuName, item);
+        this._close(); this._open(name, el);
       });
-      item.addEventListener('pointerenter', () => {
-        if (this.dropdownEl) {
-          // Switch to this menu if a dropdown is already open
-          const old = this.dropdownEl;
-          old.remove();
-          this.dropdownEl = null;
-          this.showDropdown(menuName, item);
-        }
-      });
-      this.container.appendChild(item);
+      el.addEventListener('pointerenter', () => { if (this.dd) { this._close(); this._open(name, el); } });
+      this.container.appendChild(el);
     }
-    // Close dropdown on outside click
-    document.addEventListener('click', () => {
-      if (this.dropdownEl) { this.dropdownEl.remove(); this.dropdownEl = null; }
-    });
+    document.addEventListener('click', () => this._close());
   }
 
-  private showDropdown(menuName: string, anchor: HTMLElement): void {
-    const items = menus[menuName];
-    if (!items) return;
-
+  private _open(name: string, anchor: HTMLElement): void {
+    const items = menuDef[name]; if (!items) return;
     const dd = document.createElement('div');
     dd.className = 'menu-dropdown';
-    dd.style.position = 'absolute';
-    const rect = anchor.getBoundingClientRect();
-    dd.style.left = `${rect.left}px`;
-    dd.style.top = `${rect.bottom}px`;
-    dd.style.minWidth = '200px';
-    dd.style.background = 'var(--panel-bg)';
-    dd.style.border = '1px solid var(--border-dark)';
-    dd.style.boxShadow = '2px 4px 12px rgba(0,0,0,0.2)';
-    dd.style.zIndex = '5000';
-    dd.style.padding = '2px 0';
-    dd.style.fontSize = '11px';
-
+    const r = anchor.getBoundingClientRect();
+    dd.style.cssText = `position:absolute;left:${r.left}px;top:${r.bottom}px;min-width:210px;background:var(--panel-bg);border:1px solid var(--border-dark);box-shadow:2px 4px 12px rgba(0,0,0,.2);z-index:5000;padding:2px 0;font-size:11px;`;
     for (const mi of items) {
-      if (mi.separator) {
-        const sep = document.createElement('div');
-        sep.style.cssText = 'height:1px;background:var(--border);margin:3px 8px;';
-        dd.appendChild(sep);
-        continue;
-      }
+      if (mi.separator) { const s = document.createElement('div'); s.style.cssText = 'height:1px;background:var(--border);margin:3px 8px;'; dd.appendChild(s); continue; }
       const row = document.createElement('div');
-      row.className = 'menu-dd-item';
       row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:3px 16px 3px 24px;cursor:default;white-space:nowrap;';
-      if (mi.enabled === false) {
-        row.style.opacity = '0.4';
-        row.style.cursor = 'default';
-      } else {
+      if (mi.enabled === false) { row.style.opacity = '0.4'; row.style.cursor = 'default'; }
+      else {
         row.addEventListener('pointerenter', () => row.style.background = 'var(--selected-bg)');
         row.addEventListener('pointerleave', () => row.style.background = '');
-        row.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.dropdownEl?.remove();
-          this.dropdownEl = null;
-          mi.action?.();
-        });
+        row.addEventListener('click', (e) => { e.stopPropagation(); this._close(); if (mi.action) this.dispatch(mi.action); });
       }
       const lbl = document.createElement('span');
       lbl.textContent = mi.label || '';
       if (mi.enabled === false) lbl.textContent += ' (Coming Soon)';
       row.appendChild(lbl);
-      if (mi.shortcut) {
-        const sc = document.createElement('span');
-        sc.textContent = mi.shortcut;
-        sc.style.cssText = 'color:var(--text-dim);margin-left:32px;font-size:10px;';
-        row.appendChild(sc);
-      }
+      if (mi.shortcut) { const sc = document.createElement('span'); sc.textContent = mi.shortcut; sc.style.cssText = 'color:var(--text-dim);margin-left:32px;font-size:10px;'; row.appendChild(sc); }
       dd.appendChild(row);
     }
-
-    document.body.appendChild(dd);
-    this.dropdownEl = dd;
+    document.body.appendChild(dd); this.dd = dd;
   }
+
+  private _close(): void { if (this.dd) { this.dd.remove(); this.dd = null; } }
 }

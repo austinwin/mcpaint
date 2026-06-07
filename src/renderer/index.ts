@@ -274,8 +274,8 @@ class McPaintApp {
     b('btn-zoom-out', () => { this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); });
     b('btn-theme', () => this.setTheme(this.theme === 'light' ? 'dark' : 'light'));
 
-    // Create visual menu bar
-    new MenuBar(document.getElementById('menu-row')!);
+    // Create visual menu bar — wired to central dispatcher
+    new MenuBar(document.getElementById('menu-row')!, (a, ...args) => this.dispatchAction(a, ...args));
 
     // Replace toolbar button icons with SVG icons
     this.replaceToolbarIcons();
@@ -350,57 +350,8 @@ class McPaintApp {
 
   // ==================== MENU BRIDGE ====================
   private setupMenuBridge(): void {
-    if (typeof (window as any).mcp === 'undefined') return;
-    const mcp = (window as any).mcp;
-    mcp.onMenu((action: string, ...args: any[]) => {
-      switch (action) {
-        case 'new': this.dlgNew(); break;
-        case 'save': this.fileSave(); break;
-        case 'saveAs': this.fileSaveAs(args[0]); break;
-        case 'openFile': this.fileOpenPath(args[0]); break;
-        case 'close': this.eng.closeDoc(this.eng.docIdx); this.refreshTabs(); this.render(); break;
-        case 'undo': this.eng.undo(); this.render(); break;
-        case 'redo': this.eng.redo(); this.render(); break;
-        case 'cut': this.clipCut(); break;
-        case 'copy': this.clipCopy(); break;
-        case 'paste': this.clipPaste(); break;
-        case 'selectAll': this.eng.selectAll(); this.render(); break;
-        case 'deselect': this.eng.deselect(); this.render(); break;
-        case 'fillSel': this.eng.fillSel(); this.render(); break;
-        case 'clearSel': this.eng.clearSel(); this.render(); break;
-        case 'zoomIn': this.eng.zoomIn(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
-        case 'zoomOut': this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
-        case 'zoomFit': this.centerCanvas(); break;
-        case 'actualSize': this.eng.zoom = 1; this.eng.panX = 0; this.eng.panY = 0; this.render(); break;
-        case 'theme': this.setTheme(args[0] === 'dark' ? 'dark' : 'light'); break;
-        case 'resize': this.dlgResize(); break;
-        case 'canvasSize': this.dlgCanvasSize(); break;
-        case 'flipH': this.eng.flipH(); this.render(); break;
-        case 'flipV': this.eng.flipV(); this.render(); break;
-        case 'rotCW': this.eng.rotateCW(); this.render(); break;
-        case 'rotCCW': this.eng.rotateCCW(); this.render(); break;
-        case 'crop': this.eng.cropToSel(); this.render(); break;
-        case 'flatten': this.eng.flatten(); this.render(); break;
-        case 'addLayer': this.eng.addLayer(); this.render(); break;
-        case 'delLayer': this.eng.delLayer(); this.render(); break;
-        case 'dupLayer': this.eng.dupLayer(); this.render(); break;
-        case 'mergeDown': this.eng.mergeD(); this.render(); break;
-        case 'moveUp': this.eng.moveUp(); this.render(); break;
-        case 'moveDown': this.eng.moveDown(); this.render(); break;
-        case 'bw': this.eng.bw(); this.render(); break;
-        case 'sepia': this.eng.sepia(); this.render(); break;
-        case 'invert': this.eng.invert(); this.render(); break;
-        case 'blur': this.eng.blur(3); this.render(); break;
-        case 'sharpen': this.eng.sharpen(); this.render(); break;
-        case 'edge': this.eng.edgeDetect(); this.render(); break;
-        case 'emboss': this.eng.emboss(); this.render(); break;
-        case 'pixelate': this.eng.pixelate(4); this.render(); break;
-        case 'togglePanel': this.togglePanel(args[0], args[1]); break;
-        case 'resetLayout': this.positionPanels();
-          [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => p.visible = true);
-          break;
-      }
-    });
+    if (typeof mcp === 'undefined') return;
+    mcp.onMenu((action: string, ...args: any[]) => this.dispatchAction(action, ...args));
   }
 
   // ==================== COLOR WHEEL ====================
@@ -468,25 +419,107 @@ class McPaintApp {
   }
 
   // ==================== FILE OPS ====================
-  private async fileOpen(): Promise<void> {
-    if (typeof (window as any).mcp !== 'undefined') {
-      const p = await (window as any).mcp.open();
-      if (p) this.fileOpenPath(p);
+  private dispatchAction(action: string, ...args: any[]): void {
+    switch (action) {
+      case 'new': this.dlgNew(); break;
+      case 'save': this.fileSave(); break;
+      case 'saveAs': this.fileSaveAs(args[0]); break;
+      case 'openDialog': this.fileOpen(); break;
+      case 'openFile': this.fileOpenPath(args[0]); break;
+      case 'close': this.eng.closeDoc(this.eng.docIdx); this.refreshTabs(); this.render(); break;
+      case 'undo': this.eng.undo(); this.render(); break;
+      case 'redo': this.eng.redo(); this.render(); break;
+      case 'cut': this.clipCut(); break;
+      case 'copy': this.clipCopy(); break;
+      case 'paste': this.clipPaste(); break;
+      case 'selectAll': this.eng.selectAll(); this.render(); break;
+      case 'deselect': this.eng.deselect(); this.render(); break;
+      case 'fillSel': this.eng.fillSel(); this.render(); break;
+      case 'clearSel': this.eng.clearSel(); this.render(); break;
+      case 'invertSel': case 'invert': this.eng.invert(); this.render(); break;
+      case 'zoomIn': this.eng.zoomIn(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
+      case 'zoomOut': this.eng.zoomOut(this.cw.clientWidth / 2, this.cw.clientHeight / 2); this.render(); break;
+      case 'zoomFit': this.centerCanvas(); break;
+      case 'actualSize': this.eng.zoom = 1; this.eng.panX = 0; this.eng.panY = 0; this.render(); break;
+      case 'theme': this.setTheme(this.theme === 'light' ? 'dark' : 'light'); break;
+      case 'fullscreen': document.documentElement.requestFullscreen?.(); break;
+      case 'resize': this.dlgResize(); break;
+      case 'canvasSize': this.dlgCanvasSize(); break;
+      case 'flipH': this.eng.flipH(); this.render(); break;
+      case 'flipV': this.eng.flipV(); this.render(); break;
+      case 'rotCW': this.eng.rotateCW(); this.render(); break;
+      case 'rotCCW': this.eng.rotateCCW(); this.render(); break;
+      case 'crop': this.eng.cropToSel(); this.render(); break;
+      case 'flatten': this.eng.flatten(); this.render(); break;
+      case 'addLayer': this.eng.addLayer(); this.render(); break;
+      case 'delLayer': this.eng.delLayer(); this.render(); break;
+      case 'dupLayer': this.eng.dupLayer(); this.render(); break;
+      case 'mergeDown': this.eng.mergeD(); this.render(); break;
+      case 'moveUp': this.eng.moveUp(); this.render(); break;
+      case 'moveDown': this.eng.moveDown(); this.render(); break;
+      case 'bw': this.eng.bw(); this.render(); break;
+      case 'sepia': this.eng.sepia(); this.render(); break;
+      case 'blur': this.eng.blur(3); this.render(); break;
+      case 'sharpen': this.eng.sharpen(); this.render(); break;
+      case 'edge': this.eng.edgeDetect(); this.render(); break;
+      case 'emboss': this.eng.emboss(); this.render(); break;
+      case 'pixelate': this.eng.pixelate(4); this.render(); break;
+      case 'togglePanel': case 'togglePanel:t': this.togglePanel('tools', args[0]??!this.toolsPanel.visible); break;
+      case 'togglePanel:c': this.togglePanel('colors', !this.colorsPanel.visible); break;
+      case 'togglePanel:l': this.togglePanel('layers', !this.layersPanel.visible); break;
+      case 'togglePanel:h': this.togglePanel('history', !this.historyPanel.visible); break;
+      case 'resetLayout': this.positionPanels();
+        [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => p.visible = true); break;
+      case 'about': alert('McPaint v1.0 — Paint.NET-inspired image editor for macOS\nBuilt with Electron + TypeScript'); break;
+      case 'shortcuts': alert('S=Select M=Move L=Lasso W=Wand B=Brush E=Eraser P=Pencil\nF=Bucket K=Picker C=Clone R=Recolor T=Text O=Line\nG=Gradient H=Pan Z=Zoom X=Swap Colors\n⌘Z=Undo ⌘Y=Redo ⌘A=All ⌘D=Deselect'); break;
+      default: document.getElementById('sts-msg')!.textContent = `Coming soon: ${action}`; break;
     }
   }
+
+  private async fileOpen(): Promise<void> {
+    if (typeof mcp !== 'undefined') { const p = await mcp.open(); if (p) this.fileOpenPath(p); }
+  }
   private async fileOpenPath(fp: string): Promise<void> {
-    try { const r = await fetch(`file://${fp}`); this.eng.loadFromFile(fp, await r.arrayBuffer()); this.refreshTabs(); this.centerCanvas(); }
-    catch (e) { console.error('Open failed:', e); }
+    try {
+      if (typeof mcp !== 'undefined') {
+        const result = await mcp.readFile(fp);
+        if (result.data && !result.error) {
+          this.eng.loadFromFile(fp, result.data);
+          this.refreshTabs(); this.centerCanvas(); return;
+        }
+      }
+      // Fallback to fetch for file:// URLs
+      const r = await fetch(`file://${fp}`);
+      this.eng.loadFromFile(fp, await r.arrayBuffer());
+      this.refreshTabs(); this.centerCanvas();
+    } catch (e) { console.error('Open failed:', e); }
   }
   private async fileSave(): Promise<void> {
     const d = this.eng.doc; if (!d) return;
     if (d.filePath) this.fileSaveAs(d.filePath); else this.fileSaveAs();
   }
   private async fileSaveAs(fp?: string): Promise<void> {
-    if (!fp && typeof (window as any).mcp !== 'undefined') {
-      fp = (await (window as any).mcp.save(this.eng.doc?.name || 'untitled.png')) || undefined;
+    if (!fp && typeof mcp !== 'undefined') {
+      fp = (await mcp.save(this.eng.doc?.name || 'untitled.png')) || undefined;
     }
-    if (fp) { const d = this.eng.doc; if (d) { d.filePath = fp; d.modified = false; this.refreshTabs(); } }
+    if (!fp) return;
+    const d = this.eng.doc; if (!d) return;
+    const dataUrl = d.toDataURL(this._fmtFromExt(fp));
+    const base64 = dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    if (typeof mcp !== 'undefined') {
+      const result = await mcp.writeFile(fp, bytes.buffer);
+      if (result.error) { console.error('Save failed:', result.error); return; }
+    }
+    d.filePath = fp; d.modified = false; this.refreshTabs();
+  }
+  private _fmtFromExt(fp: string): string {
+    const ext = fp.split('.').pop()?.toLowerCase();
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'webp') return 'image/webp';
+    return 'image/png';
   }
 
   // ==================== CLIPBOARD ====================
