@@ -33,6 +33,8 @@ class McPaintApp {
   private historyPanel!: HistoryPanel;
 
   theme: 'light' | 'dark' = 'light';
+  private dashOffset = 0;
+  private animFrame = 0;
 
   constructor() {
     this.mc = document.getElementById('main-canvas') as HTMLCanvasElement;
@@ -43,13 +45,15 @@ class McPaintApp {
   }
 
   private init(): void {
+    // Detect theme: localStorage > system preference > default light
+    const saved = localStorage.getItem('mcpaint_theme');
+    if (saved === 'dark' || saved === 'light') this.theme = saved;
+    else if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) this.theme = 'dark';
     this.setTheme(this.theme);
     this.eng.createDoc('Untitled', 800, 600);
 
-    // Wire tooltip status callback to status bar
-    this.tooltip.setStatusCallback((text: string) => {
-      document.getElementById('sts-msg')!.textContent = text;
-    });
+    // Wire tooltip to status bar
+    this.tooltip.setStatusCallback((text: string) => { document.getElementById('sts-msg')!.textContent = text; });
 
     // Create floating panels
     this.toolsPanel = new ToolsPanel((t: ToolType) => this.selectTool(t), this.tooltip);
@@ -57,15 +61,12 @@ class McPaintApp {
     this.layersPanel = new LayersPanel(this.eng);
     this.historyPanel = new HistoryPanel(this.eng);
 
-    // Append panels to workspace
     this.toolsPanel.appendTo(this.ws);
     this.colorsPanel.appendTo(this.ws);
     this.layersPanel.appendTo(this.ws);
     this.historyPanel.appendTo(this.ws);
 
-    // Position panels (Paint.NET-style floating layout)
     this.positionPanels();
-
     this.setupCanvas();
     this.setupToolbar();
     this.setupOptionsBar();
@@ -74,11 +75,65 @@ class McPaintApp {
     this.setupMenuBridge();
     this.setupKeyboard();
     this.setupResize();
+    this.setupDragDrop();
+    this.setupClickableZoom();
 
     this.eng.onChange(() => this.render());
     this.render();
     this.centerCanvas();
     this.updateStatusBar();
+    this.startMarchingAnts();
+  }
+
+  // ==================== DRAG-DROP FILE IMPORT ====================
+  private setupDragDrop(): void {
+    this.ws.addEventListener('dragover', e => { e.preventDefault(); this.ws.classList.add('drop-zone'); });
+    this.ws.addEventListener('dragleave', () => this.ws.classList.remove('drop-zone'));
+    this.ws.addEventListener('drop', e => {
+      e.preventDefault(); this.ws.classList.remove('drop-zone');
+      for (const file of e.dataTransfer?.files || []) {
+        if (file.type.startsWith('image/')) {
+          const url = URL.createObjectURL(file);
+          this.eng.loadImage(url, file.name);
+          URL.revokeObjectURL(url);
+          this.refreshTabs(); this.centerCanvas();
+        }
+      }
+    });
+  }
+
+  // ==================== CLICKABLE ZOOM IN STATUS BAR ====================
+  private setupClickableZoom(): void {
+    document.getElementById('sts-zoom')!.addEventListener('click', () => {
+      const current = Math.round(this.eng.zoom * 100);
+      const input = prompt('Enter zoom percentage:', String(current));
+      if (input) {
+        const v = parseInt(input);
+        if (!isNaN(v) && v >= 1 && v <= 3200) {
+          this.eng.zoom = v / 100;
+          this.centerCanvas();
+          this.render();
+        }
+      }
+    });
+  }
+
+  // ==================== MARCHING ANTS ====================
+  private startMarchingAnts(): void {
+    const loop = () => {
+      this.dashOffset = (this.dashOffset + 0.5) % 8;
+      if (this.eng.sel || this.eng.lassoPts.length > 0) this.render();
+      this.animFrame = requestAnimationFrame(loop);
+    };
+    this.animFrame = requestAnimationFrame(loop);
+  }
+
+  // ==================== TOAST ====================
+  private toast(msg: string): void {
+    const el = document.createElement('div');
+    el.className = 'mc-toast'; el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(() => el.remove(), 300); }, 3000);
   }
 
   // ==================== PANEL TOGGLE ====================
@@ -109,6 +164,7 @@ class McPaintApp {
   private setTheme(t: 'light' | 'dark'): void {
     this.theme = t;
     document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('mcpaint_theme', t);
     this.colorsPanel?.drawWheel();
   }
 
@@ -218,12 +274,31 @@ class McPaintApp {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(comp, 0, 0, cw, ch);
 
-    // Overlay (selection, lasso, etc.)
+    // Overlay (selection, lasso, etc.) with marching ants
     const octx = this.oc.getContext('2d')!;
     octx.clearRect(0, 0, this.oc.width, this.oc.height);
+
+    // Pixel grid at zoom >= 400%
+    if (z >= 4) {
+      octx.save();
+      octx.strokeStyle = document.documentElement.getAttribute('data-theme') === 'dark'
+        ? 'rgba(200,200,200,0.2)' : 'rgba(128,128,128,0.35)';
+      octx.lineWidth = 1;
+      const startX = Math.floor(-px / z) * z + px;
+      const startY = Math.floor(-py / z) * z + py;
+      for (let x = startX; x < this.oc.width; x += z) {
+        octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, this.oc.height); octx.stroke();
+      }
+      for (let y = startY; y < this.oc.height; y += z) {
+        octx.beginPath(); octx.moveTo(0, y); octx.lineTo(this.oc.width, y); octx.stroke();
+      }
+      octx.restore();
+    }
+
     if (this.eng.sel) {
       const { x, y, w, h } = this.eng.sel;
-      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1; octx.setLineDash([4, 4]);
+      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1;
+      octx.setLineDash([4, 4]); octx.lineDashOffset = -this.dashOffset;
       octx.strokeRect(x * z + px, y * z + py, w * z, h * z);
       octx.fillStyle = 'rgba(51,153,255,.12)'; octx.fillRect(x * z + px, y * z + py, w * z, h * z);
       octx.setLineDash([]); octx.restore();
@@ -381,6 +456,16 @@ class McPaintApp {
       } else if (t.closest('.tab-item')) {
         const i = parseInt(t.closest('.tab-item')!.getAttribute('data-idx') || '');
         if (!isNaN(i)) { this.eng.switchDoc(i); this.refreshTabs(); this.render(); }
+      }
+    });
+    // Middle-click to close tab
+    document.getElementById('tab-strip')!.addEventListener('auxclick', e => {
+      if (e.button === 1) {
+        const tab = (e.target as HTMLElement).closest('.tab-item');
+        if (tab) {
+          const i = parseInt(tab.getAttribute('data-idx') || '');
+          if (!isNaN(i)) { this.eng.closeDoc(i); this.refreshTabs(); this.render(); }
+        }
       }
     });
   }
