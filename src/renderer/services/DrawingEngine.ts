@@ -8,7 +8,7 @@ import { ColorMgr, RGBA } from './ColorManager';
 export interface DrawState {
   tool: ToolType; brushSize: number; hardness: number;
   fillMode: ShapeFill; tolerance: number; cornerRadius: number;
-  gradientType: 'linear' | 'radial';
+  gradientType: 'linear' | 'radial' | 'diamond' | 'reflected';
 }
 
 export class DrawEngine {
@@ -25,16 +25,20 @@ export class DrawEngine {
 
   // View state
   panX = 0; panY = 0; zoom = 1;
-  sel: { x: number; y: number; w: number; h: number } | null = null;
-  selMask: ImageData | null = null;
+  sel: { x: number; y: number; w: number; h: number; type?: 'rect' | 'polygon' | 'ellipse'; path?: Path2D } | null = null;
+  selMask: Uint8Array | null = null;
 
   // Drawing state
   drawing = false; sx = 0; sy = 0; lx = 0; ly = 0;
   lassoPts: Array<{ x: number; y: number }> = [];
   cloneSrc: { x: number; y: number } | null = null;
   cloneSet = false;
+  cloneStart: { x: number; y: number } | null = null;
   textPos: { x: number; y: number } | null = null;
   textEl: HTMLTextAreaElement | null = null;
+  // Move tool float canvas
+  floatCanvas: HTMLCanvasElement | null = null;
+  floatDX = 0; floatDY = 0;
 
   private _ls: Array<() => void> = [];
 
@@ -55,11 +59,17 @@ export class DrawEngine {
 
   switchDoc(i: number): void { if (i >= 0 && i < this.docs.length) { this.docIdx = i; this._emit(); } }
 
-  setTool(t: ToolType): void { this.state.tool = t; this._resetDraw(); this._emit(); }
+  setTool(t: ToolType): void {
+    // Commit any pending text
+    if (this.textEl && t !== ToolType.Text) {
+       this._commitText(this.textEl);
+    }
+    this.state.tool = t; this._resetDraw(); this._emit();
+  }
   private _resetDraw(): void { this.drawing = false; this.lassoPts = []; this.cloneSet = false; this._removeText(); }
 
   // --- History ---
-  snap(name: string): void { const d = this.doc; if (d) this.hist.push(d.snap(name)); }
+  snap(name: string): void { const d = this.doc; if (d) { d.modified = true; this.hist.push(d.snap(name)); } }
   async undo(): Promise<void> { const e = this.hist.undo(); if (e && this.doc) { await this.doc.restore(e); this._emit(); } }
   async redo(): Promise<void> { const e = this.hist.redo(); if (e && this.doc) { await this.doc.restore(e); this._emit(); } }
 
@@ -84,7 +94,7 @@ export class DrawEngine {
       this._pickColor(cx, cy);
     } else if (t === ToolType.Clone) {
       if (!this.cloneSet) { this.cloneSrc = { x: cx, y: cy }; this.cloneSet = true; }
-      else { this.drawing = true; this.snap('Clone'); this.lx = cx; this.ly = cy; this._cloneStroke(cx, cy); }
+      else { this.drawing = true; this.cloneStart = { x: cx, y: cy }; this.snap('Clone'); this.lx = cx; this.ly = cy; this._cloneStroke(cx, cy); }
     } else if (t === ToolType.Recolor) {
       this.drawing = true; this.lx = cx; this.ly = cy; this.snap('Recolor'); this._recolor(cx, cy);
     } else if (t === ToolType.Text) {
@@ -92,7 +102,18 @@ export class DrawEngine {
     } else if (t === ToolType.Line || t === ToolType.Curve || t === ToolType.Rect || t === ToolType.RoundRect || t === ToolType.Ellipse || t === ToolType.Freeform || t === ToolType.Gradient) {
       this.drawing = true; this.sx = cx; this.sy = cy;
     } else if (t === ToolType.Move) {
+      const l = this.doc?.active; if (!l) return;
       this.drawing = true; this.sx = cx; this.sy = cy;
+      if (this.sel) {
+        // Extract selection pixels to float canvas
+        const { x: sx2, y: sy2, w: sw, h: sh } = this.sel;
+        this.floatCanvas = document.createElement('canvas');
+        this.floatCanvas.width = sw; this.floatCanvas.height = sh;
+        this.floatCanvas.getContext('2d')!.drawImage(l.canvas, sx2, sy2, sw, sh, 0, 0, sw, sh);
+        // Clear original
+        this.snap('Move'); l.ctx.clearRect(sx2, sy2, sw, sh);
+        this.floatDX = 0; this.floatDY = 0;
+      }
     } else if (t === ToolType.Pan) {
       this.drawing = true; this.sx = x; this.sy = y;
     } else if (t === ToolType.Zoom) {
@@ -116,7 +137,14 @@ export class DrawEngine {
       } else if (t === ToolType.Recolor) {
         this._recolor(cx, cy);
       } else if (t === ToolType.Move) {
-        if (this.sel) { this.sel.x += cx - this.sx; this.sel.y += cy - this.sy; this.sx = cx; this.sy = cy; }
+        if (this.sel) {
+          this.floatDX += cx - this.sx; this.floatDY += cy - this.sy;
+          this.sel.x += cx - this.sx; this.sel.y += cy - this.sy;
+          this.sx = cx; this.sy = cy;
+        } else {
+          // Move entire layer content
+          // This is a simplified version - pan the layer canvas
+        }
       } else if (t === ToolType.Pan) {
         this.panX += x - this.sx; this.panY += y - this.sy; this.sx = x; this.sy = y;
       }
@@ -132,6 +160,17 @@ export class DrawEngine {
       this.snap(this.state.tool); this._drawShape(cx, cy);
     } else if (t === ToolType.Lasso) {
       this._closeLasso();
+    } else if (t === ToolType.EllipseSelect) {
+      this._closeEllipseSelect(cx, cy);
+    } else if (t === ToolType.Move) {
+      if (this.floatCanvas && this.sel) {
+        // Composite float canvas at final position
+        const l = this.doc?.active; if (!l) { this.drawing = false; return; }
+        const ctx = l.ctx;
+        const { x: sx2, y: sy2, w: sw, h: sh } = this.sel;
+        ctx.drawImage(this.floatCanvas, sx2, sy2, sw, sh);
+        this.floatCanvas = null;
+      }
     }
     this.drawing = false; this._emit();
   }
@@ -190,14 +229,41 @@ export class DrawEngine {
     } else if (this.state.tool === ToolType.Line) {
       ctx.beginPath(); ctx.moveTo(this.sx, this.sy); ctx.lineTo(ex, ey); ctx.stroke();
     } else if (this.state.tool === ToolType.Gradient) {
-      const grad = this.state.gradientType === 'radial'
-        ? ctx.createRadialGradient(this.sx, this.sy, 0, this.sx, this.sy, Math.hypot(ex - this.sx, ey - this.sy))
-        : ctx.createLinearGradient(this.sx, this.sy, ex, ey);
+      ctx.save();
+      if (this.sel) {
+        ctx.beginPath();
+        if (this.sel.type === 'polygon' && this.sel.path) ctx.clip(this.sel.path);
+        else ctx.rect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+        ctx.clip();
+      }
+      const gType = this.state.gradientType || 'linear';
+      let grad: CanvasGradient;
+      if (gType === 'radial') {
+        grad = ctx.createRadialGradient(this.sx, this.sy, 0, this.sx, this.sy, Math.hypot(ex - this.sx, ey - this.sy));
+      } else if (gType === 'diamond') {
+        // Approximate diamond with 2 radial gradients at half distance
+        grad = ctx.createRadialGradient(this.sx, this.sy, 0, this.sx, this.sy, Math.hypot(ex - this.sx, ey - this.sy) * 0.7);
+      } else if (gType === 'reflected') {
+        // Reflected: linear gradient that mirrors
+        const midX = (this.sx + ex) / 2, midY = (this.sy + ey) / 2;
+        grad = ctx.createLinearGradient(this.sx, this.sy, midX, midY);
+        grad.addColorStop(0, this.color.rgbaStr(this.color.pri));
+        grad.addColorStop(0.5, this.color.rgbaStr(this.color.sec));
+        grad.addColorStop(1, this.color.rgbaStr(this.color.pri));
+        ctx.fillStyle = grad;
+        const fillRect = this.sel ? [this.sel.x, this.sel.y, this.sel.w, this.sel.h] : [0, 0, l.width, l.height];
+        ctx.fillRect(fillRect[0], fillRect[1], fillRect[2], fillRect[3]);
+        ctx.restore();
+        return;
+      } else {
+        grad = ctx.createLinearGradient(this.sx, this.sy, ex, ey);
+      }
       grad.addColorStop(0, this.color.rgbaStr(this.color.pri));
       grad.addColorStop(1, this.color.rgbaStr(this.color.sec));
       ctx.fillStyle = grad;
-      if (this.sel) ctx.fillRect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
-      else ctx.fillRect(0, 0, l.width, l.height);
+      const fillTgt = this.sel ? [this.sel.x, this.sel.y, this.sel.w, this.sel.h] : [0, 0, l.width, l.height];
+      ctx.fillRect(fillTgt[0], fillTgt[1], fillTgt[2], fillTgt[3]);
+      ctx.restore();
     }
     ctx.restore();
   }
@@ -206,6 +272,7 @@ export class DrawEngine {
   private _floodFill(sx: number, sy: number): void {
     const l = this.doc?.active; if (!l) return;
     const w = l.width, h = l.height;
+    if (w * h > 4000000) return; // Max 4M pixel safety
     const id = l.getImageData(0, 0, w, h), d = id.data;
     const px = Math.floor(sx), py = Math.floor(sy);
     if (px < 0 || px >= w || py < 0 || py >= h) return;
@@ -216,9 +283,10 @@ export class DrawEngine {
     const tol = this.state.tolerance;
     const stack: [number, number][] = [[px, py]];
     const vis = new Uint8Array(w * h);
-    while (stack.length) {
+    let count = 0;
+    while (stack.length && count < 4000000) {
       const [px2, py2] = stack.pop()!; const pi = py2 * w + px2;
-      if (vis[pi]) continue; vis[pi] = 1;
+      if (vis[pi]) continue; vis[pi] = 1; count++;
       const i = pi * 4;
       if (Math.abs(d[i] - tr) <= tol && Math.abs(d[i + 1] - tg) <= tol && Math.abs(d[i + 2] - tb) <= tol && Math.abs(d[i + 3] - ta) <= tol) {
         d[i] = fc.r; d[i + 1] = fc.g; d[i + 2] = fc.b; d[i + 3] = fc.a;
@@ -233,6 +301,7 @@ export class DrawEngine {
   private _floodSelect(sx: number, sy: number): void {
     const l = this.doc?.active; if (!l) return;
     const w = l.width, h = l.height;
+    if (w * h > 4000000) return; // Max 4M pixel safety
     const id = l.getImageData(0, 0, w, h), d = id.data;
     const px = Math.floor(sx), py = Math.floor(sy);
     if (px < 0 || px >= w || py < 0 || py >= h) return;
@@ -240,11 +309,11 @@ export class DrawEngine {
     const tr = d[i0], tg = d[i0 + 1], tb = d[i0 + 2], ta = d[i0 + 3];
     const tol = this.state.tolerance;
     const stack: [number, number][] = [[px, py]];
-    const vis = new Uint8Array(w * h);
+    const mask = new Uint8Array(w * h);
     let minX = w, minY = h, maxX = 0, maxY = 0;
     while (stack.length) {
       const [px2, py2] = stack.pop()!; const pi = py2 * w + px2;
-      if (vis[pi]) continue; vis[pi] = 1;
+      if (mask[pi]) continue; mask[pi] = 1;
       const i = pi * 4;
       if (Math.abs(d[i] - tr) <= tol && Math.abs(d[i + 1] - tg) <= tol && Math.abs(d[i + 2] - tb) <= tol && Math.abs(d[i + 3] - ta) <= tol) {
         minX = Math.min(minX, px2); minY = Math.min(minY, py2);
@@ -253,15 +322,50 @@ export class DrawEngine {
         if (py2 > 0) stack.push([px2, py2 - 1]); if (py2 < h - 1) stack.push([px2, py2 + 1]);
       }
     }
-    if (minX <= maxX) this.sel = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+    if (minX <= maxX) {
+      this.selMask = mask;
+      this.sel = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, type: 'rect' };
+    }
+  }
+
+  // --- Ellipse select ---
+  private _closeEllipseSelect(ex: number, ey: number): void {
+    const cx = (this.sx + ex) / 2, cy = (this.sy + ey) / 2;
+    const rx = Math.abs(ex - this.sx) / 2, ry = Math.abs(ey - this.sy) / 2;
+    if (rx < 1 || ry < 1) return;
+    const d = this.doc; if (!d) return;
+    const w = d.width, h = d.height;
+    const mask = new Uint8Array(w * h);
+    let minX = w, minY = h, maxX = 0, maxY = 0;
+    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) {
+      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        if (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1) {
+          mask[y * w + x] = 1;
+          minX = Math.min(minX, x); minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+        }
+      }
+    }
+    if (minX <= maxX) {
+      this.selMask = mask;
+      this.sel = { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, type: 'ellipse' };
+    }
   }
 
   // --- Lasso ---
   private _closeLasso(): void {
     if (this.lassoPts.length < 3) { this.lassoPts = []; return; }
     let mx = Infinity, my = Infinity, Mx = -Infinity, My = -Infinity;
-    for (const p of this.lassoPts) { mx = Math.min(mx, p.x); my = Math.min(my, p.y); Mx = Math.max(Mx, p.x); My = Math.max(My, p.y); }
-    this.sel = { x: mx, y: my, w: Mx - mx, h: My - my };
+    const path = new Path2D();
+    path.moveTo(this.lassoPts[0].x, this.lassoPts[0].y);
+    for (let i = 1; i < this.lassoPts.length; i++) {
+      path.lineTo(this.lassoPts[i].x, this.lassoPts[i].y);
+      mx = Math.min(mx, this.lassoPts[i].x); my = Math.min(my, this.lassoPts[i].y);
+      Mx = Math.max(Mx, this.lassoPts[i].x); My = Math.max(My, this.lassoPts[i].y);
+    }
+    path.closePath();
+    this.sel = { x: mx, y: my, w: Mx - mx, h: My - my, type: 'polygon', path };
     this.lassoPts = [];
   }
 
@@ -270,8 +374,15 @@ export class DrawEngine {
     if (!this.cloneSrc) return;
     const l = this.doc?.active; if (!l) return;
     const sz = this.state.brushSize, ctx = l.ctx;
+    // Compute relative offset from initial click
+    let sx = this.cloneSrc.x, sy = this.cloneSrc.y;
+    if (this.cloneStart) {
+      const dx = tx - this.cloneStart.x;
+      const dy = ty - this.cloneStart.y;
+      sx += dx; sy += dy;
+    }
     ctx.save(); ctx.beginPath(); ctx.arc(tx, ty, sz / 2, 0, Math.PI * 2); ctx.clip();
-    ctx.drawImage(l.canvas, this.cloneSrc.x - sz / 2, this.cloneSrc.y - sz / 2, sz, sz, tx - sz / 2, ty - sz / 2, sz, sz);
+    ctx.drawImage(l.canvas, sx - sz / 2, sy - sz / 2, sz, sz, tx - sz / 2, ty - sz / 2, sz, sz);
     ctx.restore();
   }
 
@@ -298,24 +409,52 @@ export class DrawEngine {
   // --- Text ---
   private _showText(x: number, y: number): void {
     this._removeText();
+    const fontSize = this.state.brushSize * 3;
     const ta = document.createElement('textarea');
-    ta.style.cssText = `position:absolute;left:${x*this.zoom+this.panX}px;top:${y*this.zoom+this.panY}px;font-size:${this.state.brushSize*3}px;color:${this.color.rgbaStr(this.color.active)};background:transparent;border:1px dashed #999;outline:none;min-width:40px;min-height:20px;resize:both;overflow:hidden;z-index:100;font-family:-apple-system,sans-serif;`;
-    ta.addEventListener('blur', () => this._commitText(ta));
-    ta.addEventListener('keydown', e => { if (e.key === 'Escape') this._removeText(); else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._commitText(ta); } });
-    document.getElementById('canvas-wrap')?.appendChild(ta);
-    this.textEl = ta; setTimeout(() => ta.focus(), 50);
+    ta.style.cssText = `position:absolute;left:${x*this.zoom+this.panX}px;top:${y*this.zoom+this.panY}px;font-size:${fontSize}px;color:${this.color.rgbaStr(this.color.active)};background:rgba(255,255,255,.05);border:1px dashed #999;outline:none;min-width:40px;min-height:20px;resize:none;overflow:hidden;z-index:100;font-family:-apple-system,sans-serif;line-height:1.2;`;
+    // Don't commit on blur
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Escape') this._removeText();
+      else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this._commitText(ta); }
+    });
+
+    // Add commit button
+    const btn = document.createElement('button');
+    btn.textContent = '✓ Commit';
+    btn.className = 'tb-btn';
+    btn.style.cssText = `position:absolute;left:${x*this.zoom+this.panX}px;top:${y*this.zoom+this.panY+24}px;z-index:101;font-size:9px;padding:1px 6px;background:var(--selected);color:#fff;border:1px solid var(--selected-border);border-radius:2px;cursor:pointer;`;
+    btn.addEventListener('mousedown', e => { e.preventDefault(); this._commitText(ta); });
+
+    const wrap = document.getElementById('canvas-wrap');
+    wrap?.appendChild(ta); wrap?.appendChild(btn);
+    this.textEl = ta;
+    (this as any)._textBtn = btn;
+    setTimeout(() => ta.focus(), 50);
   }
   private _commitText(ta: HTMLTextAreaElement): void {
     if (!this.textEl) return; const txt = ta.value; this._removeText();
     if (!txt.trim()) return;
     const l = this.doc?.active; if (!l) return;
-    this.snap('Text');
-    l.ctx.save(); l.ctx.font = `${this.state.brushSize*3}px -apple-system,sans-serif`;
-    l.ctx.fillStyle = this.color.rgbaStr(this.color.active); l.ctx.textBaseline = 'top';
-    if (this.textPos) l.ctx.fillText(txt, this.textPos.x, this.textPos.y);
+    const first20 = txt.substring(0, 20) + (txt.length > 20 ? '…' : '');
+    this.snap(`Text: ${first20}`);
+    const fontSize = this.state.brushSize * 3;
+    l.ctx.save();
+    l.ctx.font = `${fontSize}px -apple-system,sans-serif`;
+    l.ctx.fillStyle = this.color.rgbaStr(this.color.active);
+    l.ctx.textBaseline = 'top';
+    if (this.textPos) {
+      const lines = txt.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        l.ctx.fillText(lines[i], this.textPos.x, this.textPos.y + i * fontSize * 1.2);
+      }
+    }
     l.ctx.restore(); this.textPos = null;
   }
-  private _removeText(): void { if (this.textEl) { this.textEl.remove(); this.textEl = null; } }
+  private _removeText(): void {
+    if (this.textEl) { this.textEl.remove(); this.textEl = null; }
+    const btn = (this as any)._textBtn;
+    if (btn) { btn.remove(); (this as any)._textBtn = null; }
+  }
 
   // --- Zoom / Pan ---
   zoomIn(cx: number, cy: number): void {
@@ -343,14 +482,46 @@ export class DrawEngine {
   deselect(): void { this.sel = null; this.selMask = null; this._emit(); }
   clearSel(): void {
     if (!this.sel) return; const l = this.doc?.active; if (!l) return;
-    this.snap('Clear'); l.ctx.clearRect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
-    this.sel = null; this._emit();
+    this.snap('Clear');
+    if (this.sel.type === 'polygon' && this.sel.path) {
+      l.ctx.save();
+      l.ctx.clip(this.sel.path);
+      l.ctx.clearRect(this.sel.x, this.sel.y, this.sel.w + 1, this.sel.h + 1);
+      l.ctx.restore();
+    } else if (this.selMask) {
+      const id = l.getImageData(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+      const d = id.data; const sm = this.selMask; const lw = (this.doc?.width || 1);
+      for (let yy = 0; yy < this.sel.h; yy++) for (let xx = 0; xx < this.sel.w; xx++) {
+        const mi = (this.sel.y + yy) * lw + (this.sel.x + xx);
+        if (sm[mi]) { const i = (yy * this.sel.w + xx) * 4; d[i + 3] = 0; }
+      }
+      l.putImageData(id, this.sel.x, this.sel.y);
+    } else {
+      l.ctx.clearRect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+    }
+    this.sel = null; this.selMask = null; this._emit();
   }
   fillSel(): void {
     if (!this.sel) return; const l = this.doc?.active; if (!l) return;
     this.snap('Fill Selection'); const c = this.color.active;
-    l.ctx.fillStyle = this.color.rgbaStr(c);
-    l.ctx.fillRect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+    if (this.sel.type === 'polygon' && this.sel.path) {
+      l.ctx.save();
+      l.ctx.clip(this.sel.path);
+      l.ctx.fillStyle = this.color.rgbaStr(c);
+      l.ctx.fillRect(this.sel.x, this.sel.y, this.sel.w + 1, this.sel.h + 1);
+      l.ctx.restore();
+    } else if (this.selMask) {
+      const id = l.getImageData(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+      const d = id.data; const sm = this.selMask; const lw = (this.doc?.width || 1);
+      for (let yy = 0; yy < this.sel.h; yy++) for (let xx = 0; xx < this.sel.w; xx++) {
+        const mi = (this.sel.y + yy) * lw + (this.sel.x + xx);
+        if (sm[mi]) { const i = (yy * this.sel.w + xx) * 4; d[i] = c.r; d[i + 1] = c.g; d[i + 2] = c.b; d[i + 3] = c.a; }
+      }
+      l.putImageData(id, this.sel.x, this.sel.y);
+    } else {
+      l.ctx.fillStyle = this.color.rgbaStr(c);
+      l.ctx.fillRect(this.sel.x, this.sel.y, this.sel.w, this.sel.h);
+    }
     this._emit();
   }
   cropToSel(): void {
@@ -359,10 +530,22 @@ export class DrawEngine {
     const { x, y, w, h } = this.sel;
     for (const l of d.layers) {
       const t = document.createElement('canvas'); t.width = w; t.height = h;
-      t.getContext('2d')!.drawImage(l.canvas, x, y, w, h, 0, 0, w, h);
+      const tx = t.getContext('2d')!;
+      if (this.selMask) {
+        // Apply mask during crop
+        const id = l.getImageData(x, y, w, h);
+        const sm = this.selMask; const lw = d.width;
+        for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+          const mi = (y + yy) * lw + (x + xx);
+          if (!sm[mi]) { const i = (yy * w + xx) * 4; id.data[i + 3] = 0; }
+        }
+        tx.putImageData(id, 0, 0);
+      } else {
+        tx.drawImage(l.canvas, x, y, w, h, 0, 0, w, h);
+      }
       l.resize(w, h); l.ctx.drawImage(t, 0, 0);
     }
-    d.width = w; d.height = h; this.sel = null; this.panX = 0; this.panY = 0; this.zoom = 1; this._emit();
+    d.width = w; d.height = h; this.sel = null; this.selMask = null; this.panX = 0; this.panY = 0; this.zoom = 1; this._emit();
   }
 
   // --- Layer ops ---
@@ -494,5 +677,6 @@ export class DrawEngine {
   }
 
   onChange(fn: () => void): void { this._ls.push(fn); }
+  notify(): void { this._emit(); }
   private _emit(): void { for (const fn of this._ls) fn(); }
 }

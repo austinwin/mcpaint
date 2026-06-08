@@ -14,15 +14,14 @@ export class ColorsPanel extends FloatingPanel {
   private build(): void {
     const cm = this.cm;
     this.body.innerHTML = `
-      <div id="cwheel-wrap"><canvas id="cwheel" width="120" height="120"></canvas><div id="cwheel-ptr"></div></div>
+      <div id="cwheel-wrap"><canvas id="cwheel" width="130" height="130"></canvas><div id="cwheel-ptr"></div></div>
       <div class="pal-row" id="pal-grid"></div>
       <div class="swatch-row">
         <div class="color-box active" id="cb-pri"><div class="color-box-inner"></div></div>
         <div class="color-box" id="cb-sec"><div class="color-box-inner"></div></div>
         <button class="swap-btn" id="btn-swap" title="Swap (X)">⇄</button>
-        <button class="reset-btn" id="btn-reset" title="Reset B/W">◐</button>
       </div>
-      <div class="more-link"><button id="btn-more">More &gt;&gt;</button></div>
+      <div class="more-link"><button id="btn-more">More ▾</button></div>
       <div id="color-extras" style="display:none">
         <div class="color-row"><lbl>R</lbl><input type="range" id="cs-r" min="0" max="255"><input type="number" id="cn-r" min="0" max="255" class="color-num"></div>
         <div class="color-row"><lbl>G</lbl><input type="range" id="cs-g" min="0" max="255"><input type="number" id="cn-g" min="0" max="255" class="color-num"></div>
@@ -31,7 +30,7 @@ export class ColorsPanel extends FloatingPanel {
         <div class="color-row"><lbl>#</lbl><input type="text" id="chex" value="#000000" class="color-hex"></div>
       </div>`;
 
-    // Wire events (wheel drawing happens in appendTo, after DOM insertion)
+    // Wire events
     const w = this.body.querySelector('#cwheel') as HTMLCanvasElement;
     const pt = this.body.querySelector('#cwheel-ptr') as HTMLElement;
 
@@ -63,19 +62,19 @@ export class ColorsPanel extends FloatingPanel {
     this.body.querySelector('#cb-pri')!.addEventListener('click', () => { cm.priActive = true; this.refreshUI(); });
     this.body.querySelector('#cb-sec')!.addEventListener('click', () => { cm.priActive = false; this.refreshUI(); });
     this.body.querySelector('#btn-swap')!.addEventListener('click', () => { cm.swap(); this.refreshUI(); });
-    this.body.querySelector('#btn-reset')!.addEventListener('click', () => { cm.pri = { r: 0, g: 0, b: 0, a: 255 }; cm.sec = { r: 255, g: 255, b: 255, a: 255 }; this.refreshUI(); });
     this.body.querySelector('#btn-more')!.addEventListener('click', () => {
       const ex = this.body.querySelector('#color-extras') as HTMLElement;
       const btn = this.body.querySelector('#btn-more') as HTMLElement;
       ex.style.display = ex.style.display === 'none' ? 'block' : 'none';
-      btn.textContent = ex.style.display === 'none' ? 'More >>' : '<< Less';
-      setTimeout(() => this.drawWheel(), 50); // redraw if needed after expand
+      btn.textContent = ex.style.display === 'none' ? 'More ▾' : 'Less ▴';
+      setTimeout(() => this.drawWheel(), 50);
     });
 
     const bind = (id: string, ch: 'r'|'g'|'b'|'a') => {
       const s = this.body.querySelector(`#cs-${id}`) as HTMLInputElement;
       const n = this.body.querySelector(`#cn-${id}`) as HTMLInputElement;
-      s.addEventListener('input', () => { const v = parseInt(s.value); n.value = String(v); cm.active = { ...cm.active, [ch]: v }; this.refreshUI(); });
+      const update = () => { const v = parseInt(s.value); n.value = String(v); cm.active = { ...cm.active, [ch]: v }; this.refreshUI(); };
+      s.addEventListener('input', update);
       n.addEventListener('change', () => { let v = parseInt(n.value); v = Math.max(0, Math.min(255, v || 0)); n.value = String(v); s.value = String(v); cm.active = { ...cm.active, [ch]: v }; this.refreshUI(); });
     };
     bind('r', 'r'); bind('g', 'g'); bind('b', 'b'); bind('a', 'a');

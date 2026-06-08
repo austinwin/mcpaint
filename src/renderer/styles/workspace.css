@@ -4,7 +4,7 @@
 
 #canvas-wrap {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 20px; left: 20px; right: 0; bottom: 0;
   overflow: hidden;
   cursor: crosshair;
 }
@@ -15,7 +15,7 @@
   image-rendering: auto;
   border: 1px solid rgba(0,0,0,.2);
   box-shadow: 0 2px 8px rgba(0,0,0,.4);
-  /* Checkerboard transparency */
+  /* Checkerboard transparency pattern */
   background-size: 12px 12px;
   background-image:
     linear-gradient(45deg, var(--chk-light) 25%, transparent 25%),
@@ -28,7 +28,24 @@
 #overlay-canvas {
   position: absolute;
   top: 0; left: 0;
-  /* Captures all pointer events for drawing */
+  pointer-events: all;
+}
+
+/* Ruler canvases */
+#ruler-h {
+  position: absolute; top: 0; left: 20px; right: 0; height: 20px;
+  background: var(--chrome-bg-2); border-bottom: 1px solid var(--border);
+  z-index: 5; cursor: default;
+}
+#ruler-v {
+  position: absolute; top: 20px; left: 0; bottom: 0; width: 20px;
+  background: var(--chrome-bg-2); border-right: 1px solid var(--border);
+  z-index: 5; cursor: default;
+}
+#ruler-corner {
+  position: absolute; top: 0; left: 0; width: 20px; height: 20px;
+  background: var(--chrome-bg-2); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); z-index: 6;
 }
 
 /* Drop zone indicator for file drag */

@@ -77,8 +77,12 @@ class McPaintApp {
     this.setupResize();
     this.setupDragDrop();
     this.setupClickableZoom();
+    this.setupRulers();
 
-    this.eng.onChange(() => this.render());
+    // Expose unsaved changes check for main process
+    (window as any).__mcUnsaved = () => this.eng.docs.some(d => d.modified);
+
+    this.eng.onChange(() => { this.render(); this.drawRulers(); });
     this.render();
     this.centerCanvas();
     this.updateStatusBar();
@@ -228,13 +232,57 @@ class McPaintApp {
   }
 
   // ==================== CANVAS ====================
+  private isPanning = false;
+  private isSpacePan = false;
+  private panSX = 0; private panSY = 0;
+
   private setupCanvas(): void {
     const o = this.oc;
-    o.addEventListener('pointerdown', e => { this.eng.down(e.offsetX, e.offsetY, e.button); this.render(); });
-    o.addEventListener('pointermove', e => { this.updateCursor(e.offsetX, e.offsetY); this.eng.move(e.offsetX, e.offsetY); this.render(); });
-    o.addEventListener('pointerup', e => { this.eng.up(e.offsetX, e.offsetY); this.render(); });
-    o.addEventListener('pointerleave', () => { if (this.eng.drawing) { this.eng.drawing = false; this.render(); } });
-    o.addEventListener('contextmenu', e => e.preventDefault());
+    o.addEventListener('pointerdown', e => {
+      // Middle-click pan or Space+drag
+      if (e.button === 1 || this.isSpacePan) {
+        this.isPanning = true;
+        this.panSX = e.clientX; this.panSY = e.clientY;
+        o.setPointerCapture(e.pointerId);
+        return;
+      }
+      const ox = e.offsetX, oy = e.offsetY;
+      // Check for locked layer
+      const d = this.eng.doc;
+      if (d?.active?.locked && this.eng.state.tool !== ToolType.Pan && this.eng.state.tool !== ToolType.Zoom && this.eng.state.tool !== ToolType.Picker) {
+        document.getElementById('sts-msg')!.textContent = 'Layer is locked';
+        return;
+      }
+      this.eng.down(ox, oy, e.button); this.render();
+    });
+    o.addEventListener('pointermove', e => {
+      if (this.isPanning) {
+        const dx = e.clientX - this.panSX, dy = e.clientY - this.panSY;
+        this.panSX = e.clientX; this.panSY = e.clientY;
+        this.eng.panX += dx; this.eng.panY += dy;
+        this.render();
+        return;
+      }
+      this.updateCursor(e.offsetX, e.offsetY);
+      this.eng.move(e.offsetX, e.offsetY);
+      this.render();
+    });
+    o.addEventListener('pointerup', e => {
+      if (this.isPanning) { this.isPanning = false; o.releasePointerCapture(e.pointerId); return; }
+      this.eng.up(e.offsetX, e.offsetY); this.render();
+    });
+    o.addEventListener('pointerleave', () => {
+      if (this.isPanning) { this.isPanning = false; }
+      if (this.eng.drawing) { this.eng.drawing = false; this.render(); }
+    });
+
+    // Right-click context menu
+    o.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      this.showContextMenu(e.clientX, e.clientY);
+    });
+
+    // Scroll wheel zoom
     this.cw.addEventListener('wheel', e => {
       e.preventDefault();
       if (e.metaKey || e.ctrlKey) {
@@ -243,6 +291,45 @@ class McPaintApp {
         this.render();
       }
     }, { passive: false });
+
+    // Space key for Space+drag
+    document.addEventListener('keydown', e => {
+      if (e.key === ' ' && !e.repeat && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        this.isSpacePan = true;
+        this.oc.style.cursor = 'grab';
+        e.preventDefault();
+      }
+    });
+    document.addEventListener('keyup', e => {
+      if (e.key === ' ') {
+        this.isSpacePan = false;
+        this.oc.style.cursor = 'crosshair';
+      }
+    });
+  }
+
+  private showContextMenu(x: number, y: number): void {
+    const items = [
+      { label: 'Cut', clickId: 'cut' },
+      { label: 'Copy', clickId: 'copy' },
+      { label: 'Paste', clickId: 'paste' },
+      { type: 'separator' },
+      { label: 'Select All', clickId: 'selectAll' },
+      { label: 'Deselect', clickId: 'deselect' },
+      { type: 'separator' },
+      { label: 'Fill Selection', clickId: 'fillSel', enabled: !!this.eng.sel },
+      { label: 'Clear Selection', clickId: 'clearSel', enabled: !!this.eng.sel },
+      { type: 'separator' },
+      { label: 'Add New Layer', clickId: 'addLayer' },
+      { label: 'Flatten Image', clickId: 'flatten' },
+      { type: 'separator' },
+      { label: 'Image Properties', clickId: 'imgProps' },
+    ];
+    if (typeof mcp !== 'undefined' && mcp.showContextMenu) {
+      mcp.showContextMenu(items);
+    }
+    // Store for ctxAction handling
+    (this as any)._ctxItems = items;
   }
 
   private updateCursor(ox: number, oy: number): void {
@@ -254,6 +341,125 @@ class McPaintApp {
     el('sts-sel', this.eng.sel ? `${Math.abs(Math.round(this.eng.sel.w))} × ${Math.abs(Math.round(this.eng.sel.h))} px` : '0 × 0 px');
     const d2 = this.eng.doc;
     if (d2) el('sts-size', `${d2.width} × ${d2.height} px`);
+    this._cursorX = cx; this._cursorY = cy;
+    this.drawRulers();
+  }
+  private _cursorX = 0; private _cursorY = 0;
+
+  // ==================== RULERS ====================
+  private rulersVisible = false;
+  private rh!: HTMLCanvasElement; private rv!: HTMLCanvasElement;
+
+  private setupRulers(): void {
+    const wi = document.getElementById('workspace-inner')!;
+    // Corner
+    const corner = document.createElement('div'); corner.id = 'ruler-corner'; wi.appendChild(corner);
+    // Horizontal ruler
+    this.rh = document.createElement('canvas'); this.rh.id = 'ruler-h'; wi.appendChild(this.rh);
+    // Vertical ruler
+    this.rv = document.createElement('canvas'); this.rv.id = 'ruler-v'; wi.appendChild(this.rv);
+  }
+
+  drawRulers(): void {
+    if (!this.rulersVisible) return;
+    const z = this.eng.zoom, px = this.eng.panX, py = this.eng.panY;
+    const d = this.eng.doc; if (!d) return;
+
+    // Horizontal ruler
+    const rhw = this.rh.offsetWidth || this.cw.clientWidth;
+    this.rh.width = rhw; this.rh.height = 20;
+    const hctx = this.rh.getContext('2d')!;
+    hctx.clearRect(0, 0, rhw, 20);
+    hctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim() || '#555';
+    hctx.font = '8px -apple-system,sans-serif';
+    hctx.textBaseline = 'bottom';
+
+    // Tick interval based on zoom
+    let tickInterval = 50, labelInterval = 100;
+    if (z > 2) { tickInterval = 20; labelInterval = 50; }
+    else if (z < 0.5) { tickInterval = 100; labelInterval = 200; }
+
+    const startX = Math.floor(-px / (z * tickInterval)) * tickInterval;
+    for (let v = startX; v * z + px < rhw; v += tickInterval) {
+      const sx = v * z + px;
+      if (v % labelInterval === 0) {
+        hctx.fillText(String(v), sx + 2, 13);
+        hctx.beginPath(); hctx.moveTo(sx, 10); hctx.lineTo(sx, 20); hctx.strokeStyle = '#888'; hctx.stroke();
+      } else {
+        hctx.beginPath(); hctx.moveTo(sx, 14); hctx.lineTo(sx, 20); hctx.strokeStyle = '#aaa'; hctx.stroke();
+      }
+    }
+    // Cursor hairline
+    const cxX = this._cursorX * z + px;
+    hctx.beginPath(); hctx.moveTo(cxX, 0); hctx.lineTo(cxX, 20);
+    hctx.strokeStyle = '#e00'; hctx.lineWidth = 1; hctx.stroke();
+
+    // Vertical ruler
+    const rvh = this.rv.offsetHeight || this.cw.clientHeight;
+    this.rv.width = 20; this.rv.height = rvh;
+    const vctx = this.rv.getContext('2d')!;
+    vctx.clearRect(0, 0, 20, rvh);
+    vctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim() || '#555';
+    vctx.font = '8px -apple-system,sans-serif';
+    vctx.textBaseline = 'middle';
+
+    const startY = Math.floor(-py / (z * tickInterval)) * tickInterval;
+    for (let v = startY; v * z + py < rvh; v += tickInterval) {
+      const sy = v * z + py;
+      if (v % labelInterval === 0) {
+        // Rotate text
+        vctx.save(); vctx.translate(16, sy + 1); vctx.rotate(-Math.PI / 2);
+        vctx.fillText(String(v), 0, 0); vctx.restore();
+        vctx.beginPath(); vctx.moveTo(10, sy); vctx.lineTo(20, sy); vctx.strokeStyle = '#888'; vctx.stroke();
+      } else {
+        vctx.beginPath(); vctx.moveTo(14, sy); vctx.lineTo(20, sy); vctx.strokeStyle = '#aaa'; vctx.stroke();
+      }
+    }
+    // Cursor hairline
+    const cxY = this._cursorY * z + py;
+    vctx.beginPath(); vctx.moveTo(0, cxY); vctx.lineTo(20, cxY);
+    vctx.strokeStyle = '#e00'; vctx.lineWidth = 1; vctx.stroke();
+
+    // Update visibility
+    this.rh.style.display = this.rv.style.display = 'block';
+    const corner = document.getElementById('ruler-corner'); if (corner) corner.style.display = 'block';
+    const cw = document.getElementById('canvas-wrap'); if (cw) { cw.style.left = '20px'; cw.style.top = '20px'; }
+  }
+
+  private showRulersToggle(show: boolean): void {
+    this.rulersVisible = show;
+    const rh = document.getElementById('ruler-h'), rv = document.getElementById('ruler-v');
+    const corner = document.getElementById('ruler-corner');
+    const cw = document.getElementById('canvas-wrap');
+    if (show) {
+      if (rh) rh.style.display = 'block'; if (rv) rv.style.display = 'block';
+      if (corner) corner.style.display = 'block';
+      if (cw) { cw.style.left = '20px'; cw.style.top = '20px'; }
+      this.drawRulers();
+    } else {
+      if (rh) rh.style.display = 'none'; if (rv) rv.style.display = 'none';
+      if (corner) corner.style.display = 'none';
+      if (cw) { cw.style.left = '0px'; cw.style.top = '0px'; }
+    }
+  }
+
+  // ==================== CANVAS CENTER ANIMATION ====================
+  private centerCanvas(): void {
+    const d = this.eng.doc; if (!d) return;
+    const targetPX = (this.cw.clientWidth - d.width * this.eng.zoom) / 2;
+    const targetPY = (this.cw.clientHeight - d.height * this.eng.zoom) / 2;
+    const startPX = this.eng.panX, startPY = this.eng.panY;
+    const startTime = performance.now();
+    const duration = 200;
+    const animate = (now: number) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+      this.eng.panX = startPX + (targetPX - startPX) * eased;
+      this.eng.panY = startPY + (targetPY - startPY) * eased;
+      this.render();
+      if (t < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
   }
 
   // ==================== RENDER ====================
@@ -295,17 +501,54 @@ class McPaintApp {
       octx.restore();
     }
 
+    // Clone source indicator
+    if (this.eng.cloneSet && this.eng.cloneSrc) {
+      const cx = this.eng.cloneSrc.x * z + px;
+      const cy = this.eng.cloneSrc.y * z + py;
+      octx.save();
+      octx.strokeStyle = '#fff'; octx.lineWidth = 1.5;
+      octx.beginPath(); octx.arc(cx, cy, 8, 0, Math.PI * 2); octx.stroke();
+      octx.strokeStyle = '#000'; octx.lineWidth = 1;
+      octx.beginPath(); octx.arc(cx, cy, 7, 0, Math.PI * 2); octx.stroke();
+      octx.beginPath(); octx.moveTo(cx - 12, cy); octx.lineTo(cx + 12, cy); octx.stroke();
+      octx.beginPath(); octx.moveTo(cx, cy - 12); octx.lineTo(cx, cy + 12); octx.stroke();
+      octx.restore();
+    }
+
+    // Float canvas (Move tool)
+    if (this.eng.floatCanvas && this.eng.sel) {
+      const { x: sx2, y: sy2, w: sw, h: sh } = this.eng.sel;
+      octx.globalAlpha = 0.7;
+      octx.drawImage(this.eng.floatCanvas, sx2 * z + px, sy2 * z + py, sw * z, sh * z);
+      octx.globalAlpha = 1;
+    }
+
     if (this.eng.sel) {
       const { x, y, w, h } = this.eng.sel;
       octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1;
       octx.setLineDash([4, 4]); octx.lineDashOffset = -this.dashOffset;
-      octx.strokeRect(x * z + px, y * z + py, w * z, h * z);
-      octx.fillStyle = 'rgba(51,153,255,.12)'; octx.fillRect(x * z + px, y * z + py, w * z, h * z);
+      if (this.eng.sel.type === 'polygon' && this.eng.sel.path) {
+        // Draw Path2D scaled
+        octx.save();
+        octx.translate(px, py); octx.scale(z, z);
+        octx.stroke(this.eng.sel.path);
+        octx.restore();
+      } else if (this.eng.sel.type === 'ellipse') {
+        const cx2 = (x + w / 2) * z + px, cy2 = (y + h / 2) * z + py;
+        const rx = (w / 2) * z, ry = (h / 2) * z;
+        octx.beginPath(); octx.ellipse(cx2, cy2, rx, ry, 0, 0, Math.PI * 2); octx.stroke();
+      } else {
+        octx.strokeRect(x * z + px, y * z + py, w * z, h * z);
+      }
+      octx.fillStyle = 'rgba(51,153,255,.12)';
+      octx.fillRect(x * z + px, y * z + py, w * z, h * z);
       octx.setLineDash([]); octx.restore();
     }
     if (this.eng.lassoPts.length > 0) {
       const pts = this.eng.lassoPts;
-      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1; octx.setLineDash([4, 4]); octx.beginPath();
+      octx.save(); octx.strokeStyle = '#39f'; octx.lineWidth = 1; octx.setLineDash([4, 4]);
+      octx.lineDashOffset = -this.dashOffset;
+      octx.beginPath();
       octx.moveTo(pts[0].x * z + px, pts[0].y * z + py);
       for (let i = 1; i < pts.length; i++) octx.lineTo(pts[i].x * z + px, pts[i].y * z + py);
       octx.stroke(); octx.setLineDash([]); octx.restore();
@@ -314,19 +557,17 @@ class McPaintApp {
     this.updateStatusBar();
   }
 
-  private centerCanvas(): void {
-    const d = this.eng.doc; if (!d) return;
-    this.eng.panX = (this.cw.clientWidth - d.width * this.eng.zoom) / 2;
-    this.eng.panY = (this.cw.clientHeight - d.height * this.eng.zoom) / 2;
-    this.render();
-  }
-
   private updateStatusBar(): void {
     const d = this.eng.doc;
     document.getElementById('sts-zoom')!.textContent = `${Math.round(this.eng.zoom * 100)}%`;
     if (d) {
       document.getElementById('sts-size')!.textContent = `${d.width} × ${d.height} px`;
-      document.getElementById('sts-layer')!.textContent = d.active?.name || '—';
+      const layerEl = document.getElementById('sts-layer')!;
+      if (d.active) {
+        layerEl.innerHTML = `<span style="display:inline-block;width:8px;height:8px;background:var(--text-dim);border-radius:1px;margin-right:3px;vertical-align:middle;"></span>${d.active?.locked ? '🔒 ' : ''}${d.active.name}`;
+      } else {
+        layerEl.textContent = '—';
+      }
     }
   }
 
@@ -475,8 +716,10 @@ class McPaintApp {
     this.eng.docs.forEach((d, i) => {
       const tab = document.createElement('div'); tab.className = 'tab-item';
       tab.classList.toggle('active', i === this.eng.docIdx); tab.setAttribute('data-idx', String(i));
-      const img = document.createElement('img'); img.className = 'tab-img'; img.src = d.layers[0]?.thumb(24) || ''; tab.appendChild(img);
-      const nm = document.createElement('span'); nm.className = 'tab-name'; nm.textContent = d.name + (d.modified ? ' *' : ''); tab.appendChild(nm);
+      const img = document.createElement('img'); img.className = 'tab-img';
+      img.src = d.layers[0]?.thumb(32) || ''; tab.appendChild(img);
+      const nm = document.createElement('span'); nm.className = 'tab-name';
+      nm.textContent = d.name + (d.modified ? ' *' : ''); tab.appendChild(nm);
       const x = document.createElement('button'); x.className = 'tab-x'; x.textContent = '×'; tab.appendChild(x);
       c.appendChild(tab);
     });
@@ -501,8 +744,13 @@ class McPaintApp {
     new ResizeObserver(() => {
       this.oc.width = this.cw.clientWidth;
       this.oc.height = this.cw.clientHeight;
+      if (this.rulersVisible) {
+        this.rh.width = this.cw.clientWidth;
+        this.rv.height = this.cw.clientHeight;
+      }
       this._clampPanels();
       this.render();
+      this.drawRulers();
     }).observe(this.ws);
   }
 
@@ -537,7 +785,11 @@ class McPaintApp {
     `, () => {
       const w = parseInt((document.getElementById('dlgw') as HTMLInputElement).value);
       const h = parseInt((document.getElementById('dlgh') as HTMLInputElement).value);
-      this.eng.createDoc((document.getElementById('dlgn') as HTMLInputElement).value || 'Untitled', w, h);
+      const name = (document.getElementById('dlgn') as HTMLInputElement).value || 'Untitled';
+      if (w > 8000 || h > 8000) {
+        if (!confirm(`${w}×${h} is a very large canvas and may be slow. Continue?`)) return;
+      }
+      this.eng.createDoc(name, w, h);
       this.refreshTabs(); this.centerCanvas(); this.render();
     });
   }
@@ -625,8 +877,15 @@ class McPaintApp {
       case 'togglePanel:c': this.togglePanel('colors', !this.colorsPanel.visible); break;
       case 'togglePanel:l': this.togglePanel('layers', !this.layersPanel.visible); break;
       case 'togglePanel:h': this.togglePanel('history', !this.historyPanel.visible); break;
+      case 'toggleRulers': this.showRulersToggle(args[0] ?? !this.rulersVisible); break;
       case 'resetLayout': this.positionPanels(true);
         [this.toolsPanel, this.colorsPanel, this.layersPanel, this.historyPanel].forEach(p => p.visible = true); break;
+      case 'brightness': this.showBrightnessDialog(); break;
+      case 'hueSat': this.showHueSatDialog(); break;
+      case 'levels': this.showLevelsDialog(); break;
+      case 'curves': this.showCurvesDialog(); break;
+      case 'ctxAction': this.handleCtxAction(args[0]); break;
+      case 'imgProps': this.showImgProps(); break;
       case 'about': alert('McPaint v1.0 — Paint.NET-inspired image editor for macOS\nBuilt with Electron + TypeScript'); break;
       case 'shortcuts': alert('S=Select M=Move L=Lasso W=Wand B=Brush E=Eraser P=Pencil\nF=Bucket K=Picker C=Clone R=Recolor T=Text O=Line\nG=Gradient H=Pan Z=Zoom X=Swap Colors\n⌘Z=Undo ⌘Y=Redo ⌘A=All ⌘D=Deselect'); break;
       default: document.getElementById('sts-msg')!.textContent = `Coming soon: ${action}`; break;
@@ -640,8 +899,10 @@ class McPaintApp {
     try {
       if (typeof mcp !== 'undefined') {
         const result = await mcp.readFile(fp);
-        if (result.data && !result.error) {
+        if (result.error) { this.toast(`Open failed: ${result.error}`); return; }
+        if (result.data) {
           this.eng.loadFromFile(fp, result.data);
+          // Track in recent files via main
           this.refreshTabs(); this.centerCanvas(); return;
         }
       }
@@ -649,7 +910,9 @@ class McPaintApp {
       const r = await fetch(`file://${fp}`);
       this.eng.loadFromFile(fp, await r.arrayBuffer());
       this.refreshTabs(); this.centerCanvas();
-    } catch (e) { console.error('Open failed:', e); }
+    } catch (e: any) {
+      this.toast(`Open failed: ${e?.message || 'Unknown error'}`);
+    }
   }
   private async fileSave(): Promise<void> {
     const d = this.eng.doc; if (!d) return;
@@ -663,14 +926,16 @@ class McPaintApp {
     const d = this.eng.doc; if (!d) return;
     const dataUrl = d.toDataURL(this._fmtFromExt(fp));
     const base64 = dataUrl.split(',')[1];
+    if (!base64) { this.toast('Save failed: Could not encode image'); return; }
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     if (typeof mcp !== 'undefined') {
       const result = await mcp.writeFile(fp, bytes.buffer);
-      if (result.error) { console.error('Save failed:', result.error); return; }
+      if (result.error) { this.toast(`Save failed: ${result.error}`); return; }
     }
     d.filePath = fp; d.modified = false; this.refreshTabs();
+    this.toast('Saved: ' + fp.split('/').pop());
   }
   private _fmtFromExt(fp: string): string {
     const ext = fp.split('.').pop()?.toLowerCase();
@@ -695,6 +960,356 @@ class McPaintApp {
         }
       }
     } catch (e) { console.error('Paste failed:', e); }
+  }
+
+  // ==================== CONTEXT MENU HANDLER ====================
+  private handleCtxAction(id: string): void {
+    switch (id) {
+      case 'cut': this.clipCut(); break;
+      case 'copy': this.clipCopy(); break;
+      case 'paste': this.clipPaste(); break;
+      case 'selectAll': this.eng.selectAll(); this.render(); break;
+      case 'deselect': this.eng.deselect(); this.render(); break;
+      case 'fillSel': this.eng.fillSel(); this.render(); break;
+      case 'clearSel': this.eng.clearSel(); this.render(); break;
+      case 'addLayer': this.eng.addLayer(); this.render(); break;
+      case 'flatten': this.eng.flatten(); this.render(); break;
+      case 'imgProps': this.showImgProps(); break;
+    }
+  }
+
+  // ==================== IMAGE PROPERTIES DIALOG ====================
+  private showImgProps(): void {
+    const d = this.eng.doc; if (!d) return;
+    alert(`Image Properties\n\nName: ${d.name}\nSize: ${d.width} × ${d.height} px\nLayers: ${d.layers.length}\nColor Depth: 32-bit RGBA`);
+  }
+
+  // ==================== ADJUSTMENT DIALOGS ====================
+  private showBrightnessDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Brightness / Contrast</div>
+      <div class="adj-row"><label>Brightness</label><input type="range" id="adj-bri" min="-100" max="100" value="0"><input type="number" id="adj-bri-n" value="0"></div>
+      <div class="adj-row"><label>Contrast</label><input type="range" id="adj-con" min="-100" max="100" value="0"><input type="number" id="adj-con-n" value="0"></div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+
+    const updatePreview = () => {
+      const brightness = parseInt((ov.querySelector('#adj-bri') as HTMLInputElement).value);
+      const contrast = parseInt((ov.querySelector('#adj-con') as HTMLInputElement).value);
+      const data = new Uint8ClampedArray(origSnap);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = Math.max(0, Math.min(255, data[i] + brightness * 2.55));
+        data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + brightness * 2.55));
+        data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + brightness * 2.55));
+        const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+        data[i] = Math.max(0, Math.min(255, factor * (data[i] - 128) + 128));
+        data[i + 1] = Math.max(0, Math.min(255, factor * (data[i + 1] - 128) + 128));
+        data[i + 2] = Math.max(0, Math.min(255, factor * (data[i + 2] - 128) + 128));
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const pw = preview.width, ph = preview.height;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      const tx = t.getContext('2d')!; tx.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, pw, ph);
+      pctx.drawImage(t, 0, 0, pw, ph);
+    };
+    updatePreview();
+
+    // Wire sliders
+    ['bri', 'con'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => {
+      this.eng.snap('Brightness/Contrast'); ov.remove(); this.render();
+    });
+    document.body.appendChild(ov);
+  }
+
+  private showHueSatDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Hue / Saturation</div>
+      <div class="adj-row"><label>Hue</label><input type="range" id="adj-hue" min="-180" max="180" value="0"><input type="number" id="adj-hue-n" value="0"></div>
+      <div class="adj-row"><label>Saturation</label><input type="range" id="adj-sat" min="-100" max="100" value="0"><input type="number" id="adj-sat-n" value="0"></div>
+      <div class="adj-row"><label>Lightness</label><input type="range" id="adj-lit" min="-100" max="100" value="0"><input type="number" id="adj-lit-n" value="0"></div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+
+    const updatePreview = () => {
+      const hue = parseInt((ov.querySelector('#adj-hue') as HTMLInputElement).value);
+      const sat = parseInt((ov.querySelector('#adj-sat') as HTMLInputElement).value);
+      const lit = parseInt((ov.querySelector('#adj-lit') as HTMLInputElement).value);
+      const data = new Uint8ClampedArray(origSnap);
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d2 = mx - mn;
+        let h = 0;
+        if (d2 !== 0) { if (mx === r) h = ((g - b) / d2) % 6; else if (mx === g) h = (b - r) / d2 + 2; else h = (r - g) / d2 + 4; h = h * 60; if (h < 0) h += 360; }
+        const s = mx === 0 ? 0 : d2 / mx;
+        const l = mx;
+        const newH = ((h + hue) % 360 + 360) % 360 / 360;
+        const newS = Math.max(0, Math.min(1, s + sat / 100));
+        const newL = Math.max(0, Math.min(1, l + lit / 100));
+        const i2 = Math.floor(newH * 6), f = newH * 6 - i2;
+        const p = newL * (1 - newS), q = newL * (1 - f * newS), t = newL * (1 - (1 - f) * newS);
+        let nr = 0, ng = 0, nb = 0;
+        switch (i2 % 6) { case 0: nr = newL; ng = t; nb = p; break; case 1: nr = q; ng = newL; nb = p; break; case 2: nr = p; ng = newL; nb = t; break; case 3: nr = p; ng = q; nb = newL; break; case 4: nr = t; ng = p; nb = newL; break; case 5: nr = newL; ng = p; nb = q; break; }
+        data[i] = Math.round(nr * 255); data[i + 1] = Math.round(ng * 255); data[i + 2] = Math.round(nb * 255);
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const pw = preview.width, ph = preview.height;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      const tx = t.getContext('2d')!; tx.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, pw, ph);
+      pctx.drawImage(t, 0, 0, pw, ph);
+    };
+    updatePreview();
+
+    ['hue', 'sat', 'lit'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => {
+      this.eng.snap('Hue/Saturation'); ov.remove(); this.render();
+    });
+    document.body.appendChild(ov);
+  }
+
+  private showLevelsDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+    // Build histogram
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < origSnap.length; i += 4) {
+      const gray = Math.round(origSnap[i] * 0.3 + origSnap[i + 1] * 0.59 + origSnap[i + 2] * 0.11);
+      hist[gray]++;
+    }
+
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+
+    const histCanvas = document.createElement('canvas');
+    histCanvas.width = 256; histCanvas.height = 60;
+    histCanvas.style.cssText = 'width:256px;height:60px;border:1px solid var(--border);display:block;margin:4px auto;background:var(--panel-bg);';
+    const hctx = histCanvas.getContext('2d')!;
+    const hMax = Math.max(...hist) || 1;
+    hctx.clearRect(0, 0, 256, 60);
+    hctx.fillStyle = '#888';
+    for (let i = 0; i < 256; i++) {
+      const barH = (hist[i] / hMax) * 60;
+      hctx.fillRect(i, 60 - barH, 1, barH);
+    }
+
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Levels</div>
+      <div class="adj-row"><label>Black Pt</label><input type="range" id="adj-blk" min="0" max="254" value="0"><input type="number" id="adj-blk-n" value="0"></div>
+      <div class="adj-row"><label>Gamma</label><input type="range" id="adj-gam" min="1" max="99" value="10"><input type="number" id="adj-gam-n" value="1.0" step="0.01"></div>
+      <div class="adj-row"><label>White Pt</label><input type="range" id="adj-wht" min="1" max="255" value="255"><input type="number" id="adj-wht-n" value="255"></div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(histCanvas, box.querySelector('.adj-row')!.parentElement?.querySelector('.adj-row') || box.firstChild);
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+
+    const buildLut = (black: number, white: number, gamma: number): Uint8Array => {
+      const lut = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) {
+        let v = (i - black) / (white - black);
+        v = Math.max(0, Math.min(1, v));
+        v = Math.pow(v, 1 / gamma);
+        lut[i] = Math.round(v * 255);
+      }
+      return lut;
+    };
+
+    const updatePreview = () => {
+      const black = parseInt((ov.querySelector('#adj-blk') as HTMLInputElement).value);
+      const gamma = parseFloat((ov.querySelector('#adj-gam-n') as HTMLInputElement).value) || 1;
+      const white = parseInt((ov.querySelector('#adj-wht') as HTMLInputElement).value);
+      const lut = buildLut(black, white, gamma);
+      const data = new Uint8ClampedArray(origSnap);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = lut[data[i]]; data[i + 1] = lut[data[i + 1]]; data[i + 2] = lut[data[i + 2]];
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const pw = preview.width, ph = preview.height;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      const tx = t.getContext('2d')!; tx.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, pw, ph);
+      pctx.drawImage(t, 0, 0, pw, ph);
+    };
+    updatePreview();
+
+    ['blk', 'wht'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+    const gs = ov.querySelector('#adj-gam') as HTMLInputElement;
+    const gn = ov.querySelector('#adj-gam-n') as HTMLInputElement;
+    gs.addEventListener('input', () => { const v = parseInt(gs.value) / 10; gn.value = v.toFixed(1); updatePreview(); });
+    gn.addEventListener('change', () => { const v = parseFloat(gn.value); gs.value = String(Math.round(v * 10)); updatePreview(); });
+
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => {
+      this.eng.snap('Levels'); ov.remove(); this.render();
+    });
+    document.body.appendChild(ov);
+  }
+
+  private showCurvesDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+
+    const curveCanvas = document.createElement('canvas');
+    curveCanvas.className = 'adj-curve-canvas';
+    curveCanvas.width = 256; curveCanvas.height = 256;
+
+    // Control points: scaled to 256x256
+    let points: Array<{ x: number; y: number }> = [
+      { x: 0, y: 255 }, { x: 128, y: 128 }, { x: 255, y: 0 }
+    ];
+    let dragIdx = -1;
+
+    const buildLut = (): Uint8Array => {
+      const sorted = [...points].sort((a, b) => a.x - b.x);
+      const lut = new Uint8Array(256);
+      for (let i = 0; i < 256; i++) {
+        // Find segment
+        let j = 0;
+        while (j < sorted.length - 2 && sorted[j + 1].x < i) j++;
+        const p0 = sorted[Math.max(0, j)];
+        const p1 = sorted[Math.min(sorted.length - 1, j + 1)];
+        const dx = p1.x - p0.x;
+        const t = dx === 0 ? 0 : (i - p0.x) / dx;
+        const y = p0.y + t * (p1.y - p0.y);
+        lut[i] = Math.max(0, Math.min(255, Math.round(255 - y)));
+      }
+      return lut;
+    };
+
+    const drawCurve = () => {
+      const cctx = curveCanvas.getContext('2d')!;
+      cctx.clearRect(0, 0, 256, 256);
+      // Background grid
+      cctx.strokeStyle = '#444'; cctx.lineWidth = 0.5;
+      for (let i = 0; i <= 256; i += 32) {
+        cctx.beginPath(); cctx.moveTo(i, 0); cctx.lineTo(i, 256); cctx.stroke();
+        cctx.beginPath(); cctx.moveTo(0, i); cctx.lineTo(256, i); cctx.stroke();
+      }
+      // Diagonal reference
+      cctx.strokeStyle = '#666'; cctx.lineWidth = 1;
+      cctx.beginPath(); cctx.moveTo(0, 255); cctx.lineTo(255, 0); cctx.stroke();
+      // Curve
+      const lut = buildLut();
+      cctx.strokeStyle = '#2d76c2'; cctx.lineWidth = 2;
+      cctx.beginPath();
+      for (let i = 0; i < 256; i++) {
+        const y = 255 - lut[i];
+        if (i === 0) cctx.moveTo(i, y); else cctx.lineTo(i, y);
+      }
+      cctx.stroke();
+      // Control points
+      points.forEach(p => {
+        cctx.fillStyle = 'white'; cctx.strokeStyle = '#2d76c2'; cctx.lineWidth = 2;
+        cctx.beginPath(); cctx.arc(p.x, p.y, 5, 0, Math.PI * 2); cctx.fill(); cctx.stroke();
+      });
+    };
+    drawCurve();
+
+    curveCanvas.addEventListener('pointerdown', e => {
+      const r = curveCanvas.getBoundingClientRect();
+      const mx = e.clientX - r.left, my = e.clientY - r.top;
+      dragIdx = points.findIndex(p => Math.hypot(p.x - mx, p.y - my) < 10);
+      if (dragIdx === -1) {
+        // Add new point
+        points.push({ x: mx, y: my });
+        dragIdx = points.length - 1;
+      }
+      drawCurve();
+    });
+    curveCanvas.addEventListener('pointermove', e => {
+      if (dragIdx < 0) return;
+      const r = curveCanvas.getBoundingClientRect();
+      const mx = Math.max(0, Math.min(255, e.clientX - r.left));
+      const my = Math.max(0, Math.min(255, e.clientY - r.top));
+      points[dragIdx] = { x: mx, y: my };
+      drawCurve();
+      updatePreview();
+    });
+    curveCanvas.addEventListener('pointerup', () => { dragIdx = -1; });
+
+    const updatePreview = () => {
+      const lut = buildLut();
+      const data = new Uint8ClampedArray(origSnap);
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = lut[data[i]]; data[i + 1] = lut[data[i + 1]]; data[i + 2] = lut[data[i + 2]];
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const pw = preview.width, ph = preview.height;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      const tx = t.getContext('2d')!; tx.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, pw, ph);
+      pctx.drawImage(t, 0, 0, pw, ph);
+    };
+
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Curves</div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(curveCanvas, box.querySelector('.adj-btns'));
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => {
+      this.eng.snap('Curves'); ov.remove(); this.render();
+    });
+    document.body.appendChild(ov);
   }
 }
 

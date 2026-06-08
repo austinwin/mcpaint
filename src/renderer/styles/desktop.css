@@ -10,11 +10,13 @@
   --panel-header-dark: linear-gradient(#e8ecf2, #bcc7d4);
   --border: #9aa7b3; --border-dark: #6f7d89; --toolbar-border: #b8c2cc;
   --selected: #6aa7e8; --selected-bg: #c0d8f0; --selected-border: #2d76c2;
-  --workspace-bg: #808080; --status-bg: #eef3f8;
+  --workspace-bg: #c8d0d8; --status-bg: #eef3f8;
   --text: #1f1f1f; --text-dim: #555; --text-bright: #000;
   --font-mac: -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
   --chk-light: #c0c0c0; --chk-dark: #ffffff;
   --trans-speed: 150ms;
+  --sep-color: #9aa7b3;
+  --vc-divider: #b0b8c0;
 }
 
 /* ---- Dark Theme ---- */
@@ -27,6 +29,8 @@
   --workspace-bg: #1a1a1a; --status-bg: #252930;
   --text: #d1d5db; --text-dim: #8b949e; --text-bright: #fff;
   --chk-light: #3a3a3a; --chk-dark: #2a2a2a;
+  --sep-color: #4a5568;
+  --vc-divider: #4a5568;
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -68,31 +72,31 @@ body {
 
 /* ---- Command Toolbar ---- */
 #cmd-toolbar {
-  display:flex; align-items:center; height:26px;
+  display:flex; align-items:center; height:30px;
   background:var(--chrome-bg);
-  border-bottom:1px solid var(--toolbar-border); padding:0 4px; gap:4px;
+  border-bottom:1px solid var(--toolbar-border); padding:0 4px; gap:0;
   transition: background-color var(--trans-speed);
 }
-#cmd-toolbar .tb-group { display:flex; align-items:center; gap:1px; }
+#cmd-toolbar .tb-group { display:flex; align-items:center; gap:4px; }
 #cmd-toolbar .tb-sep {
-  width:1px; height:16px; background:var(--border); margin:0 4px;
+  width:1px; height:18px; background:var(--sep-color); margin:0 4px;
 }
 #cmd-toolbar .tb-spacer { flex:1; }
 
 .tb-btn {
   display:flex; align-items:center; justify-content:center;
-  width:26px; height:26px;
+  width:26px; height:26px; min-width:26px; min-height:26px;
   border:1px solid transparent; background:transparent;
   color:var(--text); cursor:pointer; border-radius:2px; padding:0;
-  transition: background-color 100ms, border-color 100ms;
+  transition: background-color 100ms, border-color 100ms, color 100ms;
 }
-.tb-btn:hover { background:var(--selected-bg); border-color:var(--border); }
+.tb-btn:hover { background:var(--selected-bg); border-color:var(--border); color:var(--selected-border); }
 .tb-btn:active,.tb-btn.pressed { background:var(--selected); color:#fff; border-color:var(--selected-border); }
-.tb-btn svg { width:16px; height:16px; }
+.tb-btn svg { width:16px; height:16px; display:block; }
 
 .tb-select {
-  font-size:10px; padding:1px 3px; min-width:68px;
-  background:#fff; border:1px solid var(--border);
+  font-size:10px; padding:1px 4px; min-width:68px;
+  background:var(--panel-bg); border:1px solid var(--border);
   color:var(--text); border-radius:2px; height:20px;
 }
 [data-theme="dark"] .tb-select { background:#3a3f4b; }
@@ -108,15 +112,14 @@ body {
 #options-bar input[type="range"] { width:60px; height:10px; }
 #options-bar input[type="number"] {
   width:36px; font-size:9px; padding:0 2px;
-  background:#fff; border:1px solid var(--border);
-  border-radius:1px; text-align:center;
+  background:var(--panel-bg); border:1px solid var(--border);
+  border-radius:1px; text-align:center; color:var(--text);
 }
-[data-theme="dark"] #options-bar input[type="number"] { background:#3a3f4b; color:var(--text); }
 #options-bar select {
-  font-size:9px; background:#fff; border:1px solid var(--border); padding:0 2px; border-radius:1px;
+  font-size:9px; background:var(--panel-bg); border:1px solid var(--border);
+  padding:0 2px; border-radius:1px; color:var(--text);
 }
-[data-theme="dark"] #options-bar select { background:#3a3f4b; color:var(--text); }
-.opt-sep { width:1px; height:14px; background:var(--border); }
+.opt-sep { width:1px; height:14px; background:var(--sep-color); }
 .opt-group { display:flex; align-items:center; gap:3px; }
 
 /* ---- Document Tab Strip ---- */
@@ -124,26 +127,28 @@ body {
   display:flex; align-items:stretch; height:22px;
   background:var(--chrome-bg-2);
   border-bottom:1px solid var(--border);
-  overflow-x:hidden; overflow-y:hidden;
+  overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
   transition: background-color var(--trans-speed);
 }
+#tab-strip::-webkit-scrollbar { display:none; }
 #tab-strip .tab-item {
   display:flex; align-items:center; padding:0 8px; gap:4px;
   background:var(--chrome-bg); border-right:1px solid var(--border);
   color:var(--text-dim); cursor:pointer;
   font-size:10px; white-space:nowrap; min-width:80px; max-width:160px;
+  flex-shrink:0; transition: background-color 100ms;
 }
 #tab-strip .tab-item.active {
   background:var(--panel-bg); color:var(--text-bright);
   border-top:2px solid var(--selected-border); border-bottom:none;
 }
 #tab-strip .tab-item:hover:not(.active) { background:var(--selected-bg); }
-.tab-img { width:16px; height:10px; border:1px solid var(--border); object-fit:contain; border-radius:1px; }
-.tab-name { flex:1; overflow:hidden; text-overflow:ellipsis; }
+.tab-img { width:18px; height:12px; border:1px solid var(--border); object-fit:contain; border-radius:1px; flex-shrink:0; }
+.tab-name { flex:1; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .tab-x {
   width:14px; height:14px; display:flex; align-items:center; justify-content:center;
   border:none; background:transparent; color:var(--text-dim); cursor:pointer;
-  font-size:10px; border-radius:2px; margin-left:4px;
+  font-size:10px; border-radius:2px; margin-left:2px; flex-shrink:0;
 }
 .tab-x:hover { background:#c00; color:#fff; }
 
@@ -157,14 +162,14 @@ body {
 /* ---- Status Bar ---- */
 #status-bar {
   display:flex; align-items:center; height:22px;
-  background:var(--status-bg);
-  border-top:1px solid var(--border); padding:0 6px; gap:0;
+  background:var(--chrome-bg-2);
+  border-top:1px solid var(--border); padding:0 4px; gap:0;
   font-size:10px; color:var(--text-dim); flex-shrink:0;
   transition: background-color var(--trans-speed);
 }
-#status-bar .sts-spacer { flex:1; }
+#status-bar > span { padding:0 6px; white-space:nowrap; }
 #status-bar .sts-div {
-  width:1px; height:14px; background:#b0b8c0; margin:0 6px;
+  width:1px; height:14px; background:var(--vc-divider); margin:0 0;
 }
 #status-bar .sts-clickable { cursor:pointer; }
 #status-bar .sts-clickable:hover { color:var(--text-bright); text-decoration:underline; }
@@ -175,7 +180,7 @@ body {
 ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 ::-webkit-scrollbar-thumb:hover { background:var(--border-dark); }
 
-/* ---- Tooltip ---- */
+/* ---- Tooltip (dark theme override) ---- */
 [data-theme="dark"] .mc-tooltip { background:#3a3520; color:#e8e3d0; border-color:#8a8040; }
 
 /* ---- Toast notification ---- */
@@ -215,3 +220,10 @@ body {
 .dlg-row label { min-width:50px; font-size:11px; color:var(--text-dim); }
 .dlg-row input { background:#fff; border:1px solid var(--border); color:var(--text); border-radius:1px; padding:2px 6px; font-size:11px; width:80px; }
 [data-theme="dark"] .dlg-row input { background:#3a3f4b; }
+
+/* ---- Ruler corner ---- */
+#ruler-corner {
+  position: absolute; top: 0; left: 0; width: 20px; height: 20px;
+  background: var(--chrome-bg-2); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); z-index: 6;
+}

@@ -6,6 +6,7 @@ const actions = [
   'resize','canvasSize','flipH','flipV','rotCW','rotCCW','crop','flatten',
   'addLayer','delLayer','dupLayer','mergeDown','moveUp','moveDown',
   'bw','sepia','invert','blur','sharpen','edge','emboss','pixelate',
+  'brightness','hueSat','levels','curves',
   'resetLayout',
 ];
 
@@ -14,13 +15,19 @@ contextBridge.exposeInMainWorld('mcp', {
   save: (n: string) => ipcRenderer.invoke('dlg:save', n),
   readFile: (p: string) => ipcRenderer.invoke('file:read', p),
   writeFile: (p: string, data: ArrayBuffer) => ipcRenderer.invoke('file:write', p, data),
+  showContextMenu: (items: Array<{ label?: string; type?: string; clickId?: string; enabled?: boolean }>) =>
+    ipcRenderer.invoke('ctx:show', items),
   onMenu: (cb: (a: string, ...args: any[]) => void) => {
     const h = (_: any, a: string, ...args: any[]) => cb(a, ...args);
     ipcRenderer.on('m:openFile', (_e, p) => h(null, 'openFile', p));
     ipcRenderer.on('m:saveAs', (_e, p) => h(null, 'saveAs', p));
     ipcRenderer.on('m:theme', (_e, t) => h(null, 'theme', t));
     ipcRenderer.on('m:togglePanel', (_e, panel, checked) => h(null, 'togglePanel', panel, checked));
+    ipcRenderer.on('m:toggleRulers', (_e, checked) => h(null, 'toggleRulers', checked));
+    ipcRenderer.on('m:ctxAction', (_e, id) => h(null, 'ctxAction', id));
+    ipcRenderer.on('m:save', () => h(null, 'save'));
     for (const a of actions) ipcRenderer.on(`m:${a}`, () => h(null, a));
   },
   darkMode: () => ipcRenderer.invoke('theme:dark'),
+  platform: process.platform,
 });

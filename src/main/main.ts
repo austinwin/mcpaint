@@ -3,13 +3,40 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 let win: BrowserWindow | null = null;
+const recentFile = path.join(app.getPath('userData'), 'recent.json');
+let recentFiles: string[] = [];
+function loadRecent(): void {
+  try { if (fs.existsSync(recentFile)) recentFiles = JSON.parse(fs.readFileSync(recentFile, 'utf-8')); }
+  catch { recentFiles = []; }
+}
+function saveRecent(): void {
+  try { fs.writeFileSync(recentFile, JSON.stringify(recentFiles.slice(0, 10), null, 2)); }
+  catch { /* ignore */ }
+}
+function addRecent(fp: string): void {
+  recentFiles = [fp, ...recentFiles.filter(f => f !== fp)].slice(0, 10);
+  saveRecent(); rebuildMenu();
+}
 
-function menu(): void {
+function buildMenu(menuTemplate: MenuItemConstructorOptions[]): void {
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+}
+function rebuildMenu(): void { buildMenu(menuTemplate()); }
+function menuTemplate(): MenuItemConstructorOptions[] {
   const send = (ch: string, ...args: any[]) => win?.webContents.send(ch, ...args);
-  const t: MenuItemConstructorOptions[] = [
+  const recentItems: MenuItemConstructorOptions[] = recentFiles.length > 0
+    ? recentFiles.map(fp => ({
+        label: path.basename(fp),
+        click: () => win?.webContents.send('m:openFile', fp)
+      } as MenuItemConstructorOptions)).concat([
+        { type: 'separator' as const },
+        { label: 'Clear Recent', click: () => { recentFiles = []; saveRecent(); rebuildMenu(); } }
+      ])
+    : [{ label: '(No Recent Files)', enabled: false }];
+
+  return [
     {
-      label: 'File',
-      submenu: [
+      label: 'File', submenu: [
         { label: 'New', accelerator: 'CmdOrCtrl+N', click: () => send('m:new') },
         { label: 'Open...', accelerator: 'CmdOrCtrl+O', click: () => openFile() },
         { type: 'separator' },
@@ -18,12 +45,13 @@ function menu(): void {
         { type: 'separator' },
         { label: 'Close', accelerator: 'CmdOrCtrl+W', click: () => send('m:close') },
         { type: 'separator' },
+        { label: 'Recent Files', submenu: recentItems },
+        { type: 'separator' },
         { label: 'Exit', role: 'quit' },
       ]
     },
     {
-      label: 'Edit',
-      submenu: [
+      label: 'Edit', submenu: [
         { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => send('m:undo') },
         { label: 'Redo', accelerator: 'CmdOrCtrl+Y', click: () => send('m:redo') },
         { type: 'separator' },
@@ -39,21 +67,21 @@ function menu(): void {
       ]
     },
     {
-      label: 'View',
-      submenu: [
+      label: 'View', submenu: [
         { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => send('m:zoomIn') },
         { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => send('m:zoomOut') },
         { label: 'Zoom to Window', accelerator: 'CmdOrCtrl+B', click: () => send('m:zoomFit') },
         { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => send('m:actualSize') },
         { type: 'separator' },
-        { label: 'Dark Theme', type: 'checkbox', checked: true, click: (mi) => send('m:theme', mi.checked ? 'dark' : 'light') },
+        { label: 'Show Rulers', type: 'checkbox', checked: false, click: (mi) => send('m:toggleRulers', mi.checked) },
+        { type: 'separator' },
+        { label: 'Dark Theme', type: 'checkbox', checked: false, click: (mi) => send('m:theme', mi.checked ? 'dark' : 'light') },
         { type: 'separator' },
         { label: 'Toggle Full Screen', accelerator: 'F11', click: () => win?.setFullScreen(!win?.isFullScreen()) },
       ]
     },
     {
-      label: 'Image',
-      submenu: [
+      label: 'Image', submenu: [
         { label: 'Resize...', accelerator: 'CmdOrCtrl+R', click: () => send('m:resize') },
         { label: 'Canvas Size...', accelerator: 'CmdOrCtrl+Shift+R', click: () => send('m:canvasSize') },
         { type: 'separator' },
@@ -68,8 +96,7 @@ function menu(): void {
       ]
     },
     {
-      label: 'Layers',
-      submenu: [
+      label: 'Layers', submenu: [
         { label: 'Add New Layer', accelerator: 'CmdOrCtrl+Shift+N', click: () => send('m:addLayer') },
         { label: 'Delete Layer', click: () => send('m:delLayer') },
         { label: 'Duplicate Layer', click: () => send('m:dupLayer') },
@@ -80,37 +107,28 @@ function menu(): void {
       ]
     },
     {
-      label: 'Adjustments',
-      submenu: [
+      label: 'Adjustments', submenu: [
+        { label: 'Invert Colors', accelerator: 'CmdOrCtrl+Shift+I', click: () => send('m:invert') },
         { label: 'Black and White', click: () => send('m:bw') },
         { label: 'Sepia', click: () => send('m:sepia') },
-        { label: 'Invert Colors', accelerator: 'CmdOrCtrl+Shift+I', click: () => send('m:invert') },
         { type: 'separator' },
-        { label: 'Brightness / Contrast... (Coming Soon)', enabled: false },
-        { label: 'Hue / Saturation... (Coming Soon)', enabled: false },
-        { label: 'Levels... (Coming Soon)', enabled: false },
-        { label: 'Curves... (Coming Soon)', enabled: false },
-        { label: 'Posterize... (Coming Soon)', enabled: false },
+        { label: 'Brightness / Contrast...', click: () => send('m:brightness') },
+        { label: 'Hue / Saturation...', click: () => send('m:hueSat') },
+        { label: 'Levels...', click: () => send('m:levels') },
+        { label: 'Curves...', click: () => send('m:curves') },
       ]
     },
     {
-      label: 'Effects',
-      submenu: [
+      label: 'Effects', submenu: [
         { label: 'Gaussian Blur', click: () => send('m:blur') },
         { label: 'Sharpen', click: () => send('m:sharpen') },
         { label: 'Edge Detect', click: () => send('m:edge') },
         { label: 'Emboss', click: () => send('m:emboss') },
         { label: 'Pixelate', click: () => send('m:pixelate') },
-        { type: 'separator' },
-        { label: 'Motion Blur (Coming Soon)', enabled: false },
-        { label: 'Noise (Coming Soon)', enabled: false },
-        { label: 'Glow (Coming Soon)', enabled: false },
-        { label: 'Vignette (Coming Soon)', enabled: false },
       ]
     },
     {
-      label: 'Window',
-      submenu: [
+      label: 'Window', submenu: [
         { label: 'Tools', type: 'checkbox', checked: true, click: (mi) => send('m:togglePanel', 'tools', mi.checked) },
         { label: 'Colors', type: 'checkbox', checked: true, click: (mi) => send('m:togglePanel', 'colors', mi.checked) },
         { label: 'Layers', type: 'checkbox', checked: true, click: (mi) => send('m:togglePanel', 'layers', mi.checked) },
@@ -122,14 +140,12 @@ function menu(): void {
       ]
     },
     {
-      label: 'Help',
-      submenu: [
+      label: 'Help', submenu: [
         { label: 'About McPaint', click: () => dialog.showMessageBox(win!, { type: 'info', title: 'McPaint', message: 'McPaint v1.0.0', detail: 'Paint.NET-inspired image editor.\nBuilt with Electron + TypeScript.' }) },
         { label: 'Keyboard Shortcuts', click: () => dialog.showMessageBox(win!, { type: 'info', title: 'Shortcuts', message: 'S=Select M=Move L=Lasso W=Wand B=Brush E=Eraser P=Pencil F=Bucket K=Picker C=Clone R=Recolor T=Text O=Line G=Gradient H=Pan Z=Zoom X=Swap Colors\n⌘Z=Undo ⌘Y=Redo ⌘A=All ⌘D=Deselect ⌘+/− =Zoom' }) },
       ]
     }
   ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(t));
 }
 
 async function openFile(): Promise<void> {
@@ -147,9 +163,9 @@ function create(): void {
     width: 1400, height: 900, minWidth: 1000, minHeight: 650,
     title: 'McPaint',
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 12 },
-    backgroundColor: '#2d2d2d',
-    vibrancy: 'under-window',
+    trafficLightPosition: { x: 12, y: 16 },
+    backgroundColor: '#1e1e1e',
+    vibrancy: 'sidebar',
     visualEffectState: 'active',
     webPreferences: {
       nodeIntegration: false, contextIsolation: true,
@@ -158,6 +174,26 @@ function create(): void {
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('closed', () => { win = null; });
+
+  // Unsaved changes warning
+  win.on('close', async (e) => {
+    if (!win) return;
+    try {
+      const hasUnsaved = await win.webContents.executeJavaScript('!!(window.__mcUnsaved && window.__mcUnsaved())');
+      if (hasUnsaved) {
+        e.preventDefault();
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'question',
+          buttons: ['Save', "Don't Save", 'Cancel'],
+          defaultId: 0,
+          message: 'Save changes before closing?',
+          detail: 'You have unsaved changes. Do you want to save them?'
+        });
+        if (response === 0) { win.webContents.send('m:save'); }
+        else if (response === 1) { win.destroy(); }
+      }
+    } catch { /* ignore */ }
+  });
 }
 
 ipcMain.handle('dlg:open', async () => { const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'] }] }); return r.canceled ? null : r.filePaths[0]; });
@@ -175,5 +211,28 @@ ipcMain.handle('file:write', async (_, filePath: string, data: ArrayBuffer) => {
   catch (e: any) { return { error: e.message }; }
 });
 
-app.whenReady().then(() => { menu(); create(); app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) create(); }); });
+// Context menu
+ipcMain.handle('ctx:show', async (_, items: Array<{ label?: string; type?: string; clickId?: string; enabled?: boolean }>) => {
+  if (!win) return;
+  const template: MenuItemConstructorOptions[] = items.map(item => {
+    if (item.type === 'separator') return { type: 'separator' };
+    return {
+      label: item.label || '',
+      enabled: item.enabled !== false,
+      click: () => { if (item.clickId) win?.webContents.send('m:ctxAction', item.clickId); }
+    };
+  });
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: win });
+});
+
+// Track file opens/saves for recent files
+ipcMain.on('m:openFile', (_e, fp: string) => addRecent(fp));
+
+app.whenReady().then(() => {
+  loadRecent();
+  rebuildMenu();
+  create();
+  app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) create(); });
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

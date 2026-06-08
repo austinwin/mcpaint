@@ -4,6 +4,8 @@ export class FloatingPanel {
   protected body: HTMLElement;
   private dragging = false;
   private dx = 0; private dy = 0;
+  private closeBtn!: HTMLButtonElement;
+  private _visible = true;
 
   constructor(id: string, title: string, x: number, y: number, w: number) {
     this.el = document.createElement('div');
@@ -19,11 +21,15 @@ export class FloatingPanel {
     sp.textContent = title;
     tb.appendChild(sp);
 
-    const close = document.createElement('button');
-    close.className = 'fp-close';
-    close.textContent = '✕';
-    close.addEventListener('click', () => { this.el.style.display = 'none'; });
-    tb.appendChild(close);
+    this.closeBtn = document.createElement('button');
+    this.closeBtn.className = 'fp-close';
+    this.closeBtn.textContent = '✕';
+    this.closeBtn.addEventListener('click', () => {
+      this.visible = false;
+      // Notify if callback is set
+      if (this._onCloseCb) this._onCloseCb();
+    });
+    tb.appendChild(this.closeBtn);
 
     // Drag
     tb.addEventListener('pointerdown', (e) => {
@@ -32,12 +38,17 @@ export class FloatingPanel {
       this.dy = e.clientY - this.el.offsetTop;
       tb.setPointerCapture(e.pointerId);
     });
-    tb.addEventListener('pointermove', (e) => {
+    const onMove = (e: PointerEvent) => {
       if (!this.dragging) return;
       this.el.style.left = `${e.clientX - this.dx}px`;
       this.el.style.top = `${e.clientY - this.dy}px`;
-    });
-    tb.addEventListener('pointerup', () => { this.dragging = false; });
+      this.el.style.right = 'auto';
+      this.el.style.bottom = 'auto';
+    };
+    const onUp = () => { this.dragging = false; };
+    tb.addEventListener('pointermove', onMove);
+    tb.addEventListener('pointerup', onUp);
+    tb.addEventListener('pointerleave', onUp);
 
     this.el.appendChild(tb);
 
@@ -46,8 +57,14 @@ export class FloatingPanel {
     this.el.appendChild(this.body);
   }
 
-  get visible(): boolean { return this.el.style.display !== 'none'; }
-  set visible(v: boolean) { this.el.style.display = v ? '' : 'none'; }
+  private _onCloseCb: (() => void) | null = null;
+  onClose(cb: () => void): void { this._onCloseCb = cb; }
+
+  get visible(): boolean { return this._visible && this.el.style.display !== 'none'; }
+  set visible(v: boolean) {
+    this._visible = v;
+    this.el.style.display = v ? '' : 'none';
+  }
 
   toggle(): void { this.visible = !this.visible; }
 

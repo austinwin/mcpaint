@@ -7,7 +7,7 @@ export class HistoryPanel extends FloatingPanel {
   eng: DrawEngine;
 
   constructor(eng: DrawEngine) {
-    super('history-panel', 'History', 999, 999, 180); // x, y set later
+    super('history-panel', 'History', 999, 999, 180);
     this.eng = eng;
     this.build();
   }
@@ -28,7 +28,29 @@ export class HistoryPanel extends FloatingPanel {
     const rf = () => this.refresh();
     this.body.querySelector('#btn-hu')!.addEventListener('click', async () => { await eng.undo(); rf(); });
     this.body.querySelector('#btn-hr')!.addEventListener('click', async () => { await eng.redo(); rf(); });
-    this.body.querySelector('#btn-hc')!.addEventListener('click', () => { eng.hist.clear(); rf(); });
+
+    const hcBtn = this.body.querySelector('#btn-hc')!;
+    let clearConfirmTimer: ReturnType<typeof setTimeout> | null = null;
+    let confirming = false;
+    hcBtn.addEventListener('click', () => {
+      if (!confirming) {
+        confirming = true;
+        hcBtn.textContent = 'Confirm clear?';
+        clearConfirmTimer = setTimeout(() => {
+          confirming = false;
+          hcBtn.textContent = '';
+          hcBtn.innerHTML = Icons.delete;
+        }, 1500);
+      } else {
+        if (clearConfirmTimer) clearTimeout(clearConfirmTimer);
+        confirming = false;
+        hcBtn.textContent = '';
+        hcBtn.innerHTML = Icons.delete;
+        eng.hist.clear();
+        rf();
+      }
+    });
+
     eng.onChange(() => rf());
     rf();
   }
@@ -39,10 +61,34 @@ export class HistoryPanel extends FloatingPanel {
     const h = this.eng.hist;
     for (let i = 0; i < h.all.length; i++) {
       const e = h.all[i];
-      const d = document.createElement('div'); d.className = 'hist-item';
-      if (i <= h.idx) d.classList.add('done'); else d.classList.add('undone');
+      const d = document.createElement('div');
+      d.className = 'hist-item';
+      if (i <= h.idx) d.classList.add('done');
+      else d.classList.add('undone');
       if (i === h.idx) d.classList.add('current');
-      d.textContent = e.name;
+
+      // Add subtle icon
+      const icon = document.createElement('span');
+      icon.className = 'hist-icon';
+      const iconMap: Record<string, string> = {
+        'Brush': '🖌', 'Pencil': '✎', 'Eraser': '◻', 'Fill': '▣',
+        'Clone': '◈', 'Text': 'T', 'Gradient': '◧', 'Move': '✥',
+        'Rect': '□', 'Ellipse': '○', 'Line': '╱', 'RoundRect': '▢',
+        'Crop': '✂', 'Flatten': '▦', 'Flip': '↔', 'Rotate': '↻',
+        'Invert': '◐', 'B&W': '◑', 'Sepia': '◒', 'Blur': '○',
+        'Sharpen': '△', 'Edge': '◇', 'Emboss': '▣', 'Pixelate': '⊞',
+        'Clear': '⌫', 'Fill Selection': '▨', 'New Image': '⬜',
+      };
+      // Find matching icon
+      for (const [key, val] of Object.entries(iconMap)) {
+        if (e.name.startsWith(key)) { icon.textContent = val; break; }
+      }
+      d.appendChild(icon);
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = e.name;
+      d.appendChild(nameEl);
+
       d.addEventListener('click', () => { h.jump(i); this.refresh(); });
       list.appendChild(d);
     }
