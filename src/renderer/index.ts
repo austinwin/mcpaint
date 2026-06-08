@@ -45,6 +45,10 @@ class McPaintApp {
   }
 
   private init(): void {
+    // Detect platform and set attribute for CSS
+    const platform = (typeof mcp !== 'undefined' && mcp.platform) ? mcp.platform : 'darwin';
+    document.documentElement.setAttribute('data-platform', platform);
+
     // Detect theme: localStorage > system preference > default light
     const saved = localStorage.getItem('mcpaint_theme');
     if (saved === 'dark' || saved === 'light') this.theme = saved;
@@ -590,6 +594,28 @@ class McPaintApp {
     document.getElementById('opt-grad')?.addEventListener('change', e => {
       this.eng.state.gradientType = (e.target as HTMLSelectElement).value as any;
     });
+    document.getElementById('opt-selmode')?.addEventListener('change', e => {
+      this.eng.state.selMode = (e.target as HTMLSelectElement).value as any;
+    });
+    document.getElementById('opt-aa')?.addEventListener('change', e => {
+      this.eng.state.antiAlias = (e.target as HTMLInputElement).checked;
+    });
+    document.getElementById('opt-font')?.addEventListener('change', e => {
+      this.eng.state.fontFamily = (e.target as HTMLSelectElement).value;
+    });
+    document.getElementById('opt-align')?.addEventListener('change', e => {
+      this.eng.state.textAlign = (e.target as HTMLSelectElement).value as any;
+    });
+    // Font style buttons
+    document.getElementById('opt-bold')?.addEventListener('click', function(this: HTMLElement) {
+      this.classList.toggle('active');
+    });
+    document.getElementById('opt-italic')?.addEventListener('click', function(this: HTMLElement) {
+      this.classList.toggle('active');
+    });
+    document.getElementById('opt-underline')?.addEventListener('click', function(this: HTMLElement) {
+      this.classList.toggle('active');
+    });
     this.eng.onChange(() => this.updateOptionsBar());
     this.updateOptionsBar();
   }
@@ -606,6 +632,11 @@ class McPaintApp {
       fillMode: 'opt-group-fill',
       gradientType: 'opt-group-gradient',
       radius: 'opt-group-radius',
+      selMode: 'opt-group-selmode',
+      antiAlias: 'opt-group-aa',
+      font: 'opt-group-font',
+      fontStyle: 'opt-group-fontstyle',
+      alignment: 'opt-group-align',
     };
 
     const opts = meta?.options || [];
@@ -873,6 +904,10 @@ class McPaintApp {
       case 'edge': this.eng.edgeDetect(); this.render(); break;
       case 'emboss': this.eng.emboss(); this.render(); break;
       case 'pixelate': this.eng.pixelate(4); this.render(); break;
+      case 'motionBlur': this.showMotionBlurDialog(); break;
+      case 'noise': this.showNoiseDialog(); break;
+      case 'glow': this.showGlowDialog(); break;
+      case 'vignette': this.showVignetteDialog(); break;
       case 'togglePanel': case 'togglePanel:t': this.togglePanel('tools', args[0]??!this.toolsPanel.visible); break;
       case 'togglePanel:c': this.togglePanel('colors', !this.colorsPanel.visible); break;
       case 'togglePanel:l': this.togglePanel('layers', !this.layersPanel.visible); break;
@@ -1309,6 +1344,207 @@ class McPaintApp {
     ov.querySelector('.adj-ok')!.addEventListener('click', () => {
       this.eng.snap('Curves'); ov.remove(); this.render();
     });
+    document.body.appendChild(ov);
+  }
+
+  private showMotionBlurDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Motion Blur</div>
+      <div class="adj-row"><label>Angle</label><input type="range" id="adj-ma" min="0" max="360" value="0"><input type="number" id="adj-ma-n" value="0">°</div>
+      <div class="adj-row"><label>Distance</label><input type="range" id="adj-md" min="3" max="100" value="10"><input type="number" id="adj-md-n" value="10">px</div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+
+    const updatePreview = () => {
+      const angle = parseInt((ov.querySelector('#adj-ma') as HTMLInputElement).value);
+      const dist = parseInt((ov.querySelector('#adj-md') as HTMLInputElement).value);
+      const data = new Uint8ClampedArray(origSnap);
+      const rad = (angle * Math.PI) / 180;
+      const mx = Math.cos(rad), my = Math.sin(rad);
+      const w = l.width, h = l.height;
+      const src = new Uint8ClampedArray(origSnap);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let rr = 0, gg = 0, bb = 0, aa = 0, n = 0;
+        for (let i = 0; i < dist; i++) {
+          const t = i / (dist - 1 || 1) - 0.5;
+          const sx = Math.round(x + mx * t * dist), sy = Math.round(y + my * t * dist);
+          if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+            const j = (sy * w + sx) * 4;
+            rr += src[j]; gg += src[j + 1]; bb += src[j + 2]; aa += src[j + 3]; n++;
+          }
+        }
+        const j = (y * w + x) * 4;
+        data[j] = n > 0 ? rr / n : src[j];
+        data[j + 1] = n > 0 ? gg / n : src[j + 1];
+        data[j + 2] = n > 0 ? bb / n : src[j + 2];
+        data[j + 3] = n > 0 ? aa / n : src[j + 3];
+      }
+      const id = new ImageData(data, w, h);
+      const pctx = preview.getContext('2d')!;
+      const t = document.createElement('canvas'); t.width = w; t.height = h;
+      t.getContext('2d')!.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, 200, 150); pctx.drawImage(t, 0, 0, 200, 150);
+    };
+    updatePreview();
+    ['ma', 'md'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => { this.eng.snap('Motion Blur'); ov.remove(); this.render(); });
+    document.body.appendChild(ov);
+  }
+
+  private showNoiseDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Noise</div>
+      <div class="adj-row"><label>Amount</label><input type="range" id="adj-na" min="1" max="200" value="40"><input type="number" id="adj-na-n" value="40"></div>
+      <div class="adj-row"><label>Density</label><input type="range" id="adj-nd" min="1" max="100" value="100"><input type="number" id="adj-nd-n" value="100">%</div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+    const updatePreview = () => {
+      const amount = parseInt((ov.querySelector('#adj-na') as HTMLInputElement).value);
+      const density = parseInt((ov.querySelector('#adj-nd') as HTMLInputElement).value) / 100;
+      const data = new Uint8ClampedArray(origSnap);
+      for (let i = 0; i < data.length; i += 4) {
+        if (Math.random() < density) {
+          const n = (Math.random() - 0.5) * amount * 2;
+          data[i] = Math.max(0, Math.min(255, data[i] + n));
+          data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + n));
+          data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + n));
+        }
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      t.getContext('2d')!.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, 200, 150); pctx.drawImage(t, 0, 0, 200, 150);
+    };
+    updatePreview();
+    ['na', 'nd'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => { this.eng.snap('Noise'); ov.remove(); this.render(); });
+    document.body.appendChild(ov);
+  }
+
+  private showGlowDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Glow</div>
+      <div class="adj-row"><label>Radius</label><input type="range" id="adj-gr" min="1" max="30" value="5"><input type="number" id="adj-gr-n" value="5">px</div>
+      <div class="adj-row"><label>Brightness</label><input type="range" id="adj-gb" min="1" max="200" value="80"><input type="number" id="adj-gb-n" value="80">%</div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+    const updatePreview = () => {
+      const radius = parseInt((ov.querySelector('#adj-gr') as HTMLInputElement).value);
+      const brightness = parseInt((ov.querySelector('#adj-gb') as HTMLInputElement).value);
+      const data = new Uint8ClampedArray(origSnap);
+      this.eng.glow(radius, brightness);
+      // Restore original first
+      l.putImageData(origData, 0, 0);
+      this.eng.glow(radius, brightness);
+      const newData = l.getImageData(0, 0, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      t.getContext('2d')!.putImageData(newData, 0, 0);
+      pctx.clearRect(0, 0, 200, 150); pctx.drawImage(t, 0, 0, 200, 150);
+      // Restore original for preview
+      l.putImageData(origData, 0, 0);
+      // Re-apply with new params
+      this.eng.glow(radius, brightness);
+      const freshData = l.getImageData(0, 0, l.width, l.height);
+      l.putImageData(origData, 0, 0);
+      pctx.clearRect(0, 0, 200, 150);
+      t.getContext('2d')!.putImageData(freshData, 0, 0);
+      pctx.drawImage(t, 0, 0, 200, 150);
+    };
+    updatePreview();
+    ['gr', 'gb'].forEach(k => {
+      const s = ov.querySelector(`#adj-${k}`) as HTMLInputElement;
+      const n = ov.querySelector(`#adj-${k}-n`) as HTMLInputElement;
+      s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+      n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    });
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => { this.eng.snap('Glow'); ov.remove(); this.render(); });
+    document.body.appendChild(ov);
+  }
+
+  private showVignetteDialog(): void {
+    const d = this.eng.doc; if (!d) return;
+    const l = d.active; if (!l) return;
+    const origData = l.getImageData(0, 0, l.width, l.height);
+    const origSnap = new Uint8ClampedArray(origData.data);
+    const preview = document.createElement('canvas');
+    preview.className = 'adj-preview'; preview.width = 200; preview.height = 150;
+    const ov = document.createElement('div'); ov.className = 'adj-dlg';
+    ov.innerHTML = `<div class="adj-box">
+      <div class="adj-title">Vignette</div>
+      <div class="adj-row"><label>Amount</label><input type="range" id="adj-va" min="0" max="100" value="50"><input type="number" id="adj-va-n" value="50">%</div>
+      <div class="adj-btns"><button class="adj-cancel">Cancel</button><button class="adj-ok">OK</button></div></div>`;
+    const box = ov.querySelector('.adj-box')!;
+    box.insertBefore(preview, box.querySelector('.adj-btns'));
+    const updatePreview = () => {
+      const amount = parseInt((ov.querySelector('#adj-va') as HTMLInputElement).value);
+      const data = new Uint8ClampedArray(origSnap);
+      const w = l.width, h = l.height;
+      const cx = w / 2, cy = h / 2;
+      const maxR = Math.sqrt(cx * cx + cy * cy);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / maxR;
+        const factor = 1 - dist * (amount / 100);
+        const i = (y * w + x) * 4;
+        data[i] = Math.max(0, Math.min(255, data[i] * factor));
+        data[i + 1] = Math.max(0, Math.min(255, data[i + 1] * factor));
+        data[i + 2] = Math.max(0, Math.min(255, data[i + 2] * factor));
+      }
+      const id = new ImageData(data, l.width, l.height);
+      const pctx = preview.getContext('2d')!;
+      const t = document.createElement('canvas'); t.width = l.width; t.height = l.height;
+      t.getContext('2d')!.putImageData(id, 0, 0);
+      pctx.clearRect(0, 0, 200, 150); pctx.drawImage(t, 0, 0, 200, 150);
+    };
+    updatePreview();
+    const s = ov.querySelector('#adj-va') as HTMLInputElement;
+    const n = ov.querySelector('#adj-va-n') as HTMLInputElement;
+    s.addEventListener('input', () => { n.value = s.value; updatePreview(); });
+    n.addEventListener('change', () => { const v = parseInt(n.value); s.value = String(v); updatePreview(); });
+    ov.addEventListener('click', e => { if (e.target === ov) { l.putImageData(origData, 0, 0); ov.remove(); } });
+    ov.querySelector('.adj-cancel')!.addEventListener('click', () => { l.putImageData(origData, 0, 0); ov.remove(); });
+    ov.querySelector('.adj-ok')!.addEventListener('click', () => { this.eng.snap('Vignette'); ov.remove(); this.render(); });
     document.body.appendChild(ov);
   }
 }

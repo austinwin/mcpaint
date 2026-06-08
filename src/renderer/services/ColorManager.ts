@@ -33,7 +33,7 @@ export class ColorMgr {
   }
 
   onChange(fn: () => void): void { this._ls.push(fn); }
-  private _notify(): void { for (const fn of this._ls) fn(); }
+  _notify(): void { for (const fn of this._ls) fn(); }
 
   static palette(): RGBA[] {
     return [

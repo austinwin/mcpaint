@@ -48,6 +48,12 @@ body {
   transition: background-color var(--trans-speed);
 }
 
+/* Windows/Linux: no hiddenInset traffic lights, normal titlebar */
+[data-platform="win32"] #app,
+[data-platform="linux"] #app {
+  padding-top: 0;
+}
+
 /* ---- Chrome area — DRAGGABLE ---- */
 #chrome-area {
   flex-shrink:0; border-bottom:1px solid var(--border-dark);
@@ -55,7 +61,11 @@ body {
   transition: background-color var(--trans-speed);
 }
 #chrome-area button,#chrome-area input,#chrome-area select,
-#chrome-area .menu-item,#chrome-area .tab-item,#chrome-area .tab-x { -webkit-app-region:no-drag; }
+#chrome-area .menu-item,#chrome-area .tab-item,#chrome-area .tab-x,
+#chrome-area .tb-btn,#chrome-area .tb-select { -webkit-app-region:no-drag; }
+
+/* Prevent floating panels and dropdowns from being drag targets */
+.float-panel, .menu-dropdown, .mc-tooltip, .dlg-ov, .adj-dlg, .mc-toast { -webkit-app-region:no-drag; }
 
 /* ---- Menu Row ---- */
 #menu-row {
@@ -121,6 +131,16 @@ body {
 }
 .opt-sep { width:1px; height:14px; background:var(--sep-color); }
 .opt-group { display:flex; align-items:center; gap:3px; }
+.opt-style-btn {
+  width:18px; height:16px; font-size:10px; font-weight:600;
+  border:1px solid transparent; background:transparent;
+  color:var(--text); cursor:pointer; border-radius:2px;
+  display:flex; align-items:center; justify-content:center;
+  padding:0;
+}
+.opt-style-btn:hover { background:var(--selected-bg); border-color:var(--border); }
+.opt-style-btn.active { background:var(--selected); color:#fff; border-color:var(--selected-border); }
+#opt-group-aa label { font-size:9px; }
 
 /* ---- Document Tab Strip ---- */
 #tab-strip {

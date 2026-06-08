@@ -44,6 +44,7 @@ export class ToolsPanel extends FloatingPanel {
         btn.title = `${meta.name} — Coming soon`;
       } else {
         btn.addEventListener('click', () => this.onSelect(meta.type));
+        btn.title = `${meta.name} (${meta.shortcut})\n${meta.description}`;
       }
 
       // Tooltip + status with 400ms delay

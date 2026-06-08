@@ -66,10 +66,10 @@ const menuDef: Record<string, MenuItemDef[]> = {
     { label: 'Black and White', action: 'bw' },
     { label: 'Sepia', action: 'sepia' },
     { separator: true },
-    { label: 'Brightness/Contrast', enabled: false },
-    { label: 'Hue/Saturation', enabled: false },
-    { label: 'Levels', enabled: false },
-    { label: 'Curves', enabled: false },
+    { label: 'Brightness/Contrast...', action: 'brightness' },
+    { label: 'Hue/Saturation...', action: 'hueSat' },
+    { label: 'Levels...', action: 'levels' },
+    { label: 'Curves...', action: 'curves' },
   ],
   Effects: [
     { label: 'Gaussian Blur', action: 'blur' },
@@ -78,10 +78,10 @@ const menuDef: Record<string, MenuItemDef[]> = {
     { label: 'Emboss', action: 'emboss' },
     { label: 'Pixelate', action: 'pixelate' },
     { separator: true },
-    { label: 'Motion Blur', enabled: false },
-    { label: 'Noise', enabled: false },
-    { label: 'Glow', enabled: false },
-    { label: 'Vignette', enabled: false },
+    { label: 'Motion Blur...', action: 'motionBlur' },
+    { label: 'Noise...', action: 'noise' },
+    { label: 'Glow...', action: 'glow' },
+    { label: 'Vignette...', action: 'vignette' },
   ],
   Window: [
     { label: 'Tools', action: 'togglePanel:t' },
@@ -127,7 +127,7 @@ export class MenuBar {
     const dd = document.createElement('div');
     dd.className = 'menu-dropdown';
     const r = anchor.getBoundingClientRect();
-    dd.style.cssText = `position:absolute;left:${r.left}px;top:${r.bottom}px;min-width:210px;background:var(--panel-bg);border:1px solid var(--border-dark);box-shadow:2px 4px 12px rgba(0,0,0,.2);z-index:5000;padding:2px 0;font-size:11px;`;
+    dd.style.cssText = `position:fixed;left:${r.left}px;top:${r.bottom}px;min-width:210px;background:var(--panel-bg);border:1px solid var(--border-dark);box-shadow:2px 4px 12px rgba(0,0,0,.2);z-index:5000;padding:2px 0;font-size:11px;-webkit-app-region:no-drag;`;
     for (const mi of items) {
       if (mi.separator) { const s = document.createElement('div'); s.style.cssText = 'height:1px;background:var(--border);margin:3px 8px;'; dd.appendChild(s); continue; }
       const row = document.createElement('div');

@@ -1,32 +1,62 @@
 {
   "name": "mcpaint",
   "version": "1.0.0",
-  "description": "McPaint - A Paint.NET-inspired image editor for macOS built with Electron",
+  "description": "McPaint - A Paint.NET-inspired image editor built with Electron",
   "main": "dist/main/main.js",
   "scripts": {
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "webpack --config webpack.config.js --mode production",
     "build": "npm run build:main && npm run build:renderer",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "lint": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "start": "npm run build && electron .",
     "dev": "concurrently \"tsc -p tsconfig.main.json --watch\" \"webpack --config webpack.config.js --mode development --watch\" \"wait-on dist/main/main.js dist/renderer/bundle.js && electron .\"",
-    "pack": "electron-builder --mac",
-    "dist": "electron-builder --mac --universal"
+    "pack:mac": "npm run build && electron-builder --mac --dir",
+    "dist:mac": "npm run build && electron-builder --mac --universal",
+    "pack:win": "npm run build && electron-builder --win --x64 --dir",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "pack:linux": "npm run build && electron-builder --linux --dir",
+    "dist:linux": "npm run build && electron-builder --linux"
   },
   "build": {
     "appId": "com.mcpaint.app",
     "productName": "McPaint",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
     "mac": {
       "category": "public.app-category.graphics-design",
-      "target": ["dmg", "zip"],
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
       "darkModeSupport": true,
       "extendInfo": {
-        "NSRequiresAquaSystemAppearance": false
+        "NSRequiresAquaSystemAppearance": false,
+        "NSHighResolutionCapable": true
       }
+    },
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ]
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "category": "Graphics"
     },
     "files": [
       "dist/**/*",
       "assets/**/*"
-    ]
+    ],
+    "asar": true,
+    "asarUnpack": []
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

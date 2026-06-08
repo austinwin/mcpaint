@@ -9,6 +9,10 @@ export interface DrawState {
   tool: ToolType; brushSize: number; hardness: number;
   fillMode: ShapeFill; tolerance: number; cornerRadius: number;
   gradientType: 'linear' | 'radial' | 'diamond' | 'reflected';
+  selMode: 'replace' | 'add' | 'subtract' | 'intersect' | 'xor';
+  antiAlias: boolean;
+  fontFamily: string;
+  textAlign: 'left' | 'center' | 'right';
 }
 
 export class DrawEngine {
@@ -21,6 +25,8 @@ export class DrawEngine {
     tool: ToolType.Brush, brushSize: 8, hardness: 75,
     fillMode: ShapeFill.Outline, tolerance: 32, cornerRadius: 10,
     gradientType: 'linear',
+    selMode: 'replace', antiAlias: true,
+    fontFamily: '-apple-system', textAlign: 'left',
   };
 
   // View state
@@ -649,6 +655,115 @@ export class DrawEngine {
       let rr = 0, gg = 0, bb = 0, aa = 0, n = 0;
       for (let dy = 0; dy < ps && y + dy < h; dy++) for (let dx = 0; dx < ps && x + dx < w; dx++) { const j = ((y + dy) * w + (x + dx)) * 4; rr += d[j]; gg += d[j + 1]; bb += d[j + 2]; aa += d[j + 3]; n++; }
       for (let dy = 0; dy < ps && y + dy < h; dy++) for (let dx = 0; dx < ps && x + dx < w; dx++) { const j = ((y + dy) * w + (x + dx)) * 4; d[j] = rr / n; d[j + 1] = gg / n; d[j + 2] = bb / n; d[j + 3] = aa / n; }
+    }
+    l.putImageData(id, 0, 0); this._emit();
+  }
+
+  motionBlur(angleDeg: number, distance: number): void {
+    const l = this.doc?.active; if (!l) return;
+    this.snap('Motion Blur');
+    const w = l.width, h = l.height;
+    const id = l.getImageData(0, 0, w, h);
+    const src = new Uint8ClampedArray(id.data);
+    const dst = id.data;
+    const rad = (angleDeg * Math.PI) / 180;
+    const dx = Math.cos(rad), dy = Math.sin(rad);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let rr = 0, gg = 0, bb = 0, aa = 0, n = 0;
+        for (let i = 0; i < distance; i++) {
+          const t = i / (distance - 1 || 1) - 0.5;
+          const sx = Math.round(x + dx * t * distance);
+          const sy = Math.round(y + dy * t * distance);
+          if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+            const j = (sy * w + sx) * 4;
+            rr += src[j]; gg += src[j + 1]; bb += src[j + 2]; aa += src[j + 3];
+            n++;
+          }
+        }
+        const j = (y * w + x) * 4;
+        dst[j] = n > 0 ? rr / n : src[j];
+        dst[j + 1] = n > 0 ? gg / n : src[j + 1];
+        dst[j + 2] = n > 0 ? bb / n : src[j + 2];
+        dst[j + 3] = n > 0 ? aa / n : src[j + 3];
+      }
+    }
+    l.putImageData(id, 0, 0); this._emit();
+  }
+
+  noise(amount: number): void {
+    const l = this.doc?.active; if (!l) return;
+    this.snap('Noise');
+    const w = l.width, h = l.height;
+    const id = l.getImageData(0, 0, w, h), d = id.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (Math.random() - 0.5) * amount * 2;
+      d[i] = Math.max(0, Math.min(255, d[i] + n));
+      d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+      d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+    }
+    l.putImageData(id, 0, 0); this._emit();
+  }
+
+  glow(radius: number, brightness: number): void {
+    // Glow = brighten + blur blend
+    const l = this.doc?.active; if (!l) return;
+    this.snap('Glow');
+    // Simple approach: duplicate layer, brighten, blur, then blend
+    const w = l.width, h = l.height;
+    const orig = l.getImageData(0, 0, w, h);
+    // Create brightened copy
+    const bright = new Uint8ClampedArray(orig.data);
+    for (let i = 0; i < bright.length; i += 4) {
+      bright[i] = Math.min(255, bright[i] + brightness * 2.55);
+      bright[i + 1] = Math.min(255, bright[i + 1] + brightness * 2.55);
+      bright[i + 2] = Math.min(255, bright[i + 2] + brightness * 2.55);
+    }
+    // Blur the bright copy (box blur approximation)
+    const blurred = new Uint8ClampedArray(bright);
+    const r = Math.round(radius);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let rr = 0, gg = 0, bb = 0, n = 0;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            const nx = x + dx, ny = y + dy;
+            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+              const j = (ny * w + nx) * 4;
+              rr += bright[j]; gg += bright[j + 1]; bb += bright[j + 2];
+              n++;
+            }
+          }
+        }
+        const j = (y * w + x) * 4;
+        blurred[j] = rr / n; blurred[j + 1] = gg / n; blurred[j + 2] = bb / n;
+      }
+    }
+    // Blend: screen blend mode with original
+    for (let i = 0; i < orig.data.length; i += 4) {
+      orig.data[i] = Math.min(255, orig.data[i] + blurred[i] - (orig.data[i] * blurred[i]) / 255);
+      orig.data[i + 1] = Math.min(255, orig.data[i + 1] + blurred[i + 1] - (orig.data[i + 1] * blurred[i + 1]) / 255);
+      orig.data[i + 2] = Math.min(255, orig.data[i + 2] + blurred[i + 2] - (orig.data[i + 2] * blurred[i + 2]) / 255);
+    }
+    l.putImageData(orig, 0, 0); this._emit();
+  }
+
+  vignette(amount: number): void {
+    const l = this.doc?.active; if (!l) return;
+    this.snap('Vignette');
+    const w = l.width, h = l.height;
+    const id = l.getImageData(0, 0, w, h), d = id.data;
+    const cx = w / 2, cy = h / 2;
+    const maxR = Math.sqrt(cx * cx + cy * cy);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) / maxR;
+        const factor = 1 - dist * (amount / 100);
+        const i = (y * w + x) * 4;
+        d[i] = Math.max(0, Math.min(255, d[i] * factor));
+        d[i + 1] = Math.max(0, Math.min(255, d[i + 1] * factor));
+        d[i + 2] = Math.max(0, Math.min(255, d[i + 2] * factor));
+      }
     }
     l.putImageData(id, 0, 0); this._emit();
   }

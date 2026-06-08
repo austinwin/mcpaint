@@ -97,6 +97,14 @@ export const Icons = {
   ruler: `<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="1" y1="5" x2="6" y2="5" stroke="currentColor" stroke-width="0.8"/><line x1="1" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="0.8"/><line x1="1" y1="11" x2="8" y2="11" stroke="currentColor" stroke-width="0.8"/></svg>`,
 
   theme: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 2a6 6 0 000 12V2z" fill="currentColor" opacity="0.4"/></svg>`,
+
+  desktop: `<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="14" x2="11" y2="14" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="12" x2="8" y2="14" stroke="currentColor" stroke-width="1.2"/></svg>`,
+
+  flipH: `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="14,2 14,14 10,10" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="2" y1="2" x2="2" y2="14" stroke="currentColor" stroke-width="1.5"/></svg>`,
+
+  layers: `<svg width="16" height="16" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="2.5" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="5" width="13" height="2.5" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="8.5" width="13" height="2.5" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
+
+  history: `<svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.2"/><polyline points="8,4 8,8 11,10" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>`,
 };
 
 /** Create an icon element from the SVG string */

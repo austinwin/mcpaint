@@ -46,12 +46,13 @@
 .fp-body { padding: 3px; overflow-y: auto; flex: 1; }
 
 /* ---- Tools Panel ---- */
-#tools-panel { width: 56px; }
+#tools-panel { width: 56px; min-width: 56px; overflow: hidden; }
+#tools-panel .fp-body { overflow: hidden; padding: 2px; }
 #tools-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1px;
-  padding: 2px;
+  padding: 0;
 }
 .tools-sep {
   grid-column: 1 / -1; height: 1px;
@@ -76,9 +77,9 @@
 .tool-btn.disabled:hover { background: transparent; border-color: transparent; }
 
 /* ---- Colors Panel ---- */
-#colors-panel { width: 210px; }
+#colors-panel { width: 210px; min-width: 210px; }
 #cwheel-wrap { position: relative; width: 130px; height: 130px; margin: 4px auto; }
-#cwheel { width: 130px; height: 130px; border-radius: 50%; cursor: crosshair; }
+#cwheel { width: 130px; height: 130px; border-radius: 50%; cursor: crosshair; image-rendering: auto; }
 #cwheel-ptr {
   position: absolute; width: 6px; height: 6px;
   border: 1px solid #000; background: #fff;
@@ -105,9 +106,17 @@
   position: absolute; left: 42px; top: 2px;
   background: var(--panel-bg); border: 1px solid var(--border);
   color: var(--text); cursor: pointer; border-radius: 2px;
-  padding: 1px 6px; font-size: 11px;
+  padding: 1px 5px; font-size: 10px;
 }
 .swap-btn:hover { background: var(--selected-bg); }
+
+.reset-btn {
+  position: absolute; left: 64px; top: 2px;
+  background: var(--panel-bg); border: 1px solid var(--border);
+  color: var(--text-dim); cursor: pointer; border-radius: 2px;
+  padding: 1px 5px; font-size: 10px;
+}
+.reset-btn:hover { background: var(--selected-bg); color: var(--text); }
 
 .pal-row {
   display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px;

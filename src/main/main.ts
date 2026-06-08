@@ -158,20 +158,31 @@ async function saveAs(): Promise<void> {
   if (!r.canceled && r.filePath) win?.webContents.send('m:saveAs', r.filePath);
 }
 
+const isMac = process.platform === 'darwin';
+
 function create(): void {
   win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 1000, minHeight: 650,
     title: 'McPaint',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 16 },
+    ...(isMac ? {
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 12, y: 16 },
+      vibrancy: 'sidebar',
+      visualEffectState: 'active',
+    } : {
+      titleBarStyle: 'default',
+      autoHideMenuBar: false,
+    }),
     backgroundColor: '#1e1e1e',
-    vibrancy: 'sidebar',
-    visualEffectState: 'active',
     webPreferences: {
       nodeIntegration: false, contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
     }
   });
+  // On Windows, set the menu bar to be visible by default
+  if (!isMac) {
+    win.setMenuBarVisibility(true);
+  }
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.on('closed', () => { win = null; });
 
