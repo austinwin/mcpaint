@@ -1,4 +1,4 @@
-export interface LSnap{layerId:string;dataUrl:string}
+export interface LSnap{layerId:string;dataUrl:string;locked?:boolean;visible?:boolean;opacity?:number;blendMode?:string;name?:string}
 export interface HEntry{id:string;name:string;ts:number;snaps:LSnap[];activeIdx:number}
 export class History{
   private _e:HEntry[]=[];private _i=-1;max=500;

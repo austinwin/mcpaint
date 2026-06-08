@@ -14,7 +14,7 @@ export class CanvasDoc{
   flatten():void{const c=this.composite();this.layers=[new Layer('Bg',this.width,this.height)];this.layers[0].drawImage(c);this.activeIdx=0;this.modified=true}
   resizeCanvas(w:number,h:number):void{for(const l of this.layers)l.resize(w,h);this.width=w;this.height=h;this.modified=true}
   composite():HTMLCanvasElement{const c=document.createElement('canvas');c.width=this.width;c.height=this.height;const x=c.getContext('2d')!;for(const l of this.layers){if(!l.visible)continue;x.globalAlpha=l.opacity/255;x.globalCompositeOperation=l.cop;x.drawImage(l.canvas,0,0)}x.globalAlpha=1;x.globalCompositeOperation='source-over';return c}
-  snap(name:string):HEntry{return{id:crypto.randomUUID(),name,ts:Date.now(),snaps:this.layers.map(l=>({layerId:l.id,dataUrl:l.snap()})),activeIdx:this.activeIdx}}
-  async restore(e:HEntry):Promise<void>{await Promise.all(e.snaps.map(async s=>{const l=this.layers.find(x=>x.id===s.layerId);if(l)await l.restore(s.dataUrl)}));this.activeIdx=e.activeIdx}
+  snap(name:string):HEntry{return{id:crypto.randomUUID(),name,ts:Date.now(),snaps:this.layers.map(l=>({layerId:l.id,dataUrl:l.snap(),locked:l.locked,visible:l.visible,opacity:l.opacity,blendMode:l.blendMode,name:l.name})),activeIdx:this.activeIdx}}
+  async restore(e:HEntry):Promise<void>{await Promise.all(e.snaps.map(async s=>{const l=this.layers.find(x=>x.id===s.layerId);if(l){await l.restore(s.dataUrl);if(s.locked!==undefined)l.locked=s.locked;if(s.visible!==undefined)l.visible=s.visible;if(s.opacity!==undefined)l.opacity=s.opacity;if(s.blendMode!==undefined)l.blendMode=s.blendMode as any;if(s.name!==undefined)l.name=s.name}}));this.activeIdx=e.activeIdx}
   toDataURL(t='image/png',q?:number):string{return this.composite().toDataURL(t,q)}
 }
